@@ -1,133 +1,14 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useChatStore } from '../../store/chatStore';
-import type { StreamOptions } from '../../api/openrouter';
 import type { Attachment } from '../../types';
 import { ProviderLogo } from '../ModelModal/ProviderLogo';
 import ModelModal from '../ModelModal/ModelModal';
 import './MessageInput.scss';
-
-type ModeId = 'fast' | 'deep' | 'search' | 'critic' | 'tutor';
-
-interface Mode {
-  id: ModeId;
-  label: string;
-  title: string;
-  icon: string;
-  systemPrompt?: string;
-  plugin?: string;
-  excludes?: ModeId[];
-}
-
-const MODES: Mode[] = [
-  {
-    id: 'fast',
-    label: 'Быстрее',
-    title: 'Краткие и точные ответы без лишних деталей',
-    icon: '⚡',
-    systemPrompt: 'Be concise and direct. Give short, focused answers without unnecessary explanations.',
-    excludes: ['deep'],
-  },
-  {
-    id: 'deep',
-    label: 'Глубже',
-    title: 'Развёрнутый анализ с пошаговым рассуждением',
-    icon: '🧠',
-    systemPrompt: 'Think deeply and thoroughly. Break down complex topics step by step with detailed analysis and reasoning.',
-    excludes: ['fast'],
-  },
-  {
-    id: 'search',
-    label: 'Веб-поиск',
-    title: 'Поиск актуальной информации в интернете',
-    icon: '🌐',
-    plugin: 'web',
-  },
-  {
-    id: 'critic',
-    label: 'Критик',
-    title: 'Найди слабые места и разрушь идею',
-    icon: '🔥',
-    systemPrompt: 'Act as a ruthless critic and devil\'s advocate. Your job is to find flaws, edge cases, logical gaps, and weak assumptions in any idea or plan. Be direct and harsh. Do not soften feedback. End with what would make the idea actually solid.',
-  },
-  {
-    id: 'tutor',
-    label: 'Объясни',
-    title: 'Объяснение через примеры и аналогии',
-    icon: '🎓',
-    systemPrompt: 'You are a patient tutor. Explain concepts using simple analogies and real-world examples. Check understanding by asking clarifying questions. Avoid jargon unless you define it first. Adapt complexity to what the user seems to know.',
-  },
-];
-
-const TEXT_EXTENSIONS = new Set([
-  'txt', 'md', 'js', 'ts', 'tsx', 'jsx', 'py', 'json', 'csv',
-  'xml', 'html', 'css', 'scss', 'yaml', 'yml', 'sh', 'sql',
-  'c', 'cpp', 'h', 'java', 'rs', 'go', 'rb', 'php', 'swift',
-]);
-
-function isImageFile(file: File): boolean {
-  if (file.type.startsWith('image/')) return true;
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-  return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp'].includes(ext);
-}
-
-function isTextFile(file: File): boolean {
-  if (file.type.startsWith('text/')) return true;
-  if (['application/json', 'application/xml'].includes(file.type)) return true;
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-  return TEXT_EXTENSIONS.has(ext);
-}
-
-async function processFile(file: File, allowImages: boolean): Promise<Attachment | null> {
-  const asImage = isImageFile(file);
-  if (asImage && !allowImages) return null;
-  const asText = !asImage && isTextFile(file);
-  if (!asImage && !asText) return null;
-
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      resolve({
-        id: Math.random().toString(36).slice(2) + Date.now().toString(36),
-        name: file.name,
-        mimeType: file.type || (asImage ? 'image/jpeg' : 'text/plain'),
-        data: e.target!.result as string,
-        isImage: asImage,
-        size: file.size,
-      });
-    };
-    reader.onerror = () => resolve(null);
-    if (asImage) {
-      reader.readAsDataURL(file);
-    } else {
-      reader.readAsText(file);
-    }
-  });
-}
-
-const FORMAT_PROMPT = `
-Format rules (always follow):
-- Math formulas: inline with $formula$, block with $$formula$$
-- Code: always use fenced blocks with language tag
-- Lists: markdown only, no unicode bullets
-- No HTML tags in output
-- Paragraphs: separated by blank line
-`
-
-function buildOptions(activeModes: Set<ModeId>): StreamOptions | undefined {
-  const prompts: string[] = [];
-  const plugins: string[] = [];
-  for (const mode of MODES) {
-    if (!activeModes.has(mode.id)) continue;
-    if (mode.systemPrompt) prompts.push(mode.systemPrompt);
-    if (mode.plugin) plugins.push(mode.plugin);
-  }
-  if (prompts.length === 0 && plugins.length === 0) return undefined;
-  prompts.unshift(FORMAT_PROMPT);
-  return {
-    ...(prompts.length > 0 ? { systemPrompt: prompts.join(' ') } : {}),
-    ...(plugins.length > 0 ? { plugins } : {}),
-  };
-}
+import { useNavigate } from 'react-router';
+import { FORMAT_PROMPT } from '../../utils/system-settings';
+import { Mode, ModeId, MODES } from '../../utils/modes';
+import { buildOptions, processFile } from './functions';
+import Dropdown from '../Dropdown/Dropdown';
 
 const MAX_ROWS = 5;
 
@@ -136,31 +17,54 @@ export default function MessageInput() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeModes, setActiveModes] = useState<Set<ModeId>>(new Set());
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [canAttachImages, setCanAttachImages] = useState(false);
+  const [canAttachFiles, setCanAttachFiles] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [modesOpen, setModesOpen] = useState(false);
+  const modesDropdownRef = useRef<HTMLDivElement>(null);
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
+  const navigate = useNavigate();
 
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const createChat = useChatStore(s => s.createChat)
+  const activeChat = useChatStore((s) => s.activeChat);
   const stopStreaming = useChatStore((s) => s.stopStreaming);
   const isStreaming = useChatStore((s) => s.isStreaming);
+  const activeModel = useChatStore(s => s.activeModel)
+  const fetchModels = useChatStore((s) => s.fetchModels);
   const models = useChatStore((s) => s.models);
-  const activeChat = useChatStore((s) => s.chats.find((c) => c.id === s.activeChat?.id));
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const currentModelId = activeChat?.messages[activeChat?.messages.length - 1]?.modelId ?? '';
-  const currentModel = models.find((m) => m.id === currentModelId);
-  const currentModelName = currentModel?.name ?? currentModelId;
-  const canAttachImages = currentModel?.architecture?.input_modalities?.includes('image') ?? false;
+  const currentModelId = activeModel?.id;
+  const currentModelName = activeModel?.name;
 
-  // Удаляем прикреплённые картинки, если сменили модель без поддержки vision
   useEffect(() => {
-    if (!canAttachImages) {
-      setAttachments((prev) => prev.filter((a) => !a.isImage));
+    if (!modesOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (!modesDropdownRef.current?.contains(e.target as Node)) {
+        setModesOpen(false);
+      }
     }
-  }, [canAttachImages]);
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [modesOpen]);
 
-  const handleFiles = useCallback(async (files: File[], allowImages: boolean) => {
-    const results = await Promise.all(files.map((f) => processFile(f, allowImages)));
+  useEffect(() => {
+    const modalities = activeModel.architecture.input_modalities;
+    setCanAttachImages(modalities.includes('image'));
+    setCanAttachFiles(modalities.includes('file'));
+  }, [activeModel]);
+
+  useEffect(() => {
+    if (!canAttachFiles) {
+      setAttachments((prev) => prev.filter((a) => a.isImage || !a.isDocument));
+    }
+  }, [canAttachFiles]);
+
+  const handleFiles = useCallback(async (files: File[], allowImages: boolean, allowDocuments: boolean) => {
+    const results = await Promise.all(files.map((f) => processFile(f, allowImages, allowDocuments)));
     const valid = results.filter(Boolean) as Attachment[];
     if (valid.length > 0) setAttachments((prev) => [...prev, ...valid]);
   }, []);
@@ -186,14 +90,29 @@ export default function MessageInput() {
     if (isStreaming) { stopStreaming(); return; }
     const trimmed = value.trim();
     if (!trimmed && attachments.length === 0) return;
+
     setValue('');
     setAttachments([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.overflowY = 'hidden';
     }
-    await sendMessage(trimmed, buildOptions(activeModes), attachments);
-  }, [value, isStreaming, sendMessage, stopStreaming, activeModes, attachments]);
+
+    const options = buildOptions(activeModes);
+
+    let chatId = activeChat?.id;
+
+    if (!chatId) {
+      const newChat = await createChat(trimmed, FORMAT_PROMPT);
+      if (!newChat) return;
+      chatId = newChat.id;
+      navigate(`/chats/${chatId}`);
+    }
+
+    setTimeout(async () => {
+      await sendMessage(trimmed, options, attachments);
+    }, 0)
+  }, [value, isStreaming, activeChat, sendMessage, createChat, stopStreaming, activeModes, attachments, navigate]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -220,7 +139,7 @@ export default function MessageInput() {
     if (imageItems.length === 0) return;
     e.preventDefault();
     const files = imageItems.map((item) => item.getAsFile()).filter(Boolean) as File[];
-    await handleFiles(files, true);
+    await handleFiles(files, true, false);
   }, [handleFiles, canAttachImages]);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -235,11 +154,65 @@ export default function MessageInput() {
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    await handleFiles(Array.from(e.dataTransfer.files), canAttachImages);
+    await handleFiles(Array.from(e.dataTransfer.files), canAttachImages, canAttachFiles);
   }, [handleFiles, canAttachImages]);
 
   const canSend = (value.trim().length > 0 || attachments.length > 0) && !isStreaming;
   const sendActive = canSend || isStreaming;
+
+  const handleModalOpen = () => {
+    if (models.length === 0) {
+      fetchModels();
+    }
+
+    setIsModalOpen(true)
+  }
+
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showTooltip(e: React.MouseEvent<HTMLButtonElement>, text: string) {
+    const tooltip = tooltipRef.current;
+    if (!tooltip) return;
+
+    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+
+    tooltip.textContent = text;
+    tooltip.style.opacity = '1';
+
+    const btnRect = e.currentTarget.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const padding = 8;
+
+    let left = btnRect.left + btnRect.width / 2 - tooltipRect.width / 2;
+    if (left < padding) left = padding;
+    if (left + tooltipRect.width > window.innerWidth - padding) {
+      left = window.innerWidth - tooltipRect.width - padding;
+    }
+
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${btnRect.top - tooltipRect.height - 10}px`;
+
+    // На мобиле скрываем через 3 секунды
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      tooltipTimerRef.current = setTimeout(() => {
+        if (tooltipRef.current) tooltipRef.current.style.opacity = '0';
+      }, 3000);
+    }
+  }
+
+  function hideTooltip() {
+    // На мобиле не скрываем по mouseLeave — скроет таймер
+    if (window.matchMedia('(max-width: 768px)').matches) return;
+    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+    if (tooltipRef.current) tooltipRef.current.style.opacity = '0';
+  }
+
+  useEffect(() => {
+    return () => {
+      if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+    };
+  }, []);
 
   return (
     <>
@@ -270,8 +243,11 @@ export default function MessageInput() {
                   ) : (
                     <div className="message-input__attachment-file">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                        <polyline points="14 2 14 8 20 8" />
+                        {att.isDocument ? (
+                          <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></>
+                        ) : (
+                          <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></>
+                        )}
                       </svg>
                       <span title={att.name}>{att.name}</span>
                     </div>
@@ -301,50 +277,111 @@ export default function MessageInput() {
             disabled={isStreaming}
           />
 
-          <div className="message-input__modes">
-            {MODES.map((mode) => (
-              <button
-                key={mode.id}
-                className={`message-input__mode-btn ${activeModes.has(mode.id) ? 'message-input__mode-btn--active' : ''}`}
-                onClick={() => toggleMode(mode)}
-                title={mode.title}
-                type="button"
-              >
-                <span className="message-input__mode-icon">{mode.icon}</span>
-                {mode.label}
-              </button>
-            ))}
-          </div>
+          {!isMobile && (
+            <div className="message-input__modes">
+              {MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  className={`message-input__mode-btn ${activeModes.has(mode.id) ? 'message-input__mode-btn--active' : ''}`}
+                  onClick={() => toggleMode(mode)}
+                  onMouseEnter={(e) => showTooltip(e, mode.title)}
+                  onMouseLeave={hideTooltip}
+                  type="button"
+                >
+                  <span className="message-input__mode-icon">{mode.icon}</span>
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="message-input__bottom">
             <div className="message-input__bottom-left">
-              <button
-                className="message-input__attach-btn"
-                onClick={() => fileInputRef.current?.click()}
-                title={canAttachImages ? 'Прикрепить файл или изображение' : 'Прикрепить файл (модель не поддерживает изображения)'}
-                type="button"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                </svg>
-              </button>
-              <button
-                className="message-input__model-btn"
-                onClick={() => setIsModalOpen(true)}
-                title="Выбрать модель"
-              >
-                <ProviderLogo modelId={currentModelId} size={18} />
-                <span className="message-input__model-name">{currentModelName}</span>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
-              </button>
+
+              <div className="message-input__bottom-row">
+                <button
+                  className="message-input__attach-btn"
+                  onClick={() => fileInputRef.current?.click()}
+                  title={
+                    canAttachImages && canAttachFiles
+                      ? 'Прикрепить файл, изображение или документ'
+                      : canAttachImages
+                        ? 'Прикрепить файл или изображение'
+                        : canAttachFiles
+                          ? 'Прикрепить файл или документ'
+                          : 'Прикрепить файл'
+                  }
+                  type="button"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                  </svg>
+                </button>
+                <button
+                  className="message-input__model-btn"
+                  onClick={handleModalOpen}
+                  title="Выбрать модель"
+                >
+                  <ProviderLogo modelId={currentModelId} size={18} />
+                  <span className="message-input__model-name">{currentModelName}</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+              </div>
+              <div className="message-input__bottom-row">
+
+                {isMobile && (
+                  <div className="message-input__modes-dropdown" ref={modesDropdownRef}>
+                    <button
+                      type="button"
+                      className={`message-input__modes-trigger ${activeModes.size > 0 ? 'message-input__modes-trigger--active' : ''}`}
+                      onClick={() => setModesOpen(v => !v)}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                      </svg>
+                      Режимы
+                      {activeModes.size > 0 && (
+                        <span className="message-input__modes-count">{activeModes.size}</span>
+                      )}
+                    </button>
+
+                    {modesOpen && (
+                      <div className="message-input__modes-menu">
+                        {MODES.map((mode) => {
+                          const isActive = activeModes.has(mode.id);
+                          return (
+                            <button
+                              key={mode.id}
+                              type="button"
+                              className={`message-input__modes-option ${isActive ? 'message-input__modes-option--active' : ''}`}
+                              onClick={() => toggleMode(mode)}
+                            >
+                              <span className="message-input__mode-icon">{mode.icon}</span>
+                              <span className="message-input__modes-option-label">{mode.label}</span>
+                              {isActive && (
+                                <svg className="message-input__modes-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <Dropdown />
+              </div>
+
             </div>
 
             <button
               className={`message-input__send ${sendActive ? 'message-input__send--active' : ''} ${isStreaming ? 'message-input__send--stop' : ''}`}
               onClick={handleSend}
-              disabled={!sendActive}
+              disabled={!sendActive && !isStreaming}
               title={isStreaming ? 'Остановить' : 'Отправить'}
             >
               {isStreaming ? (
@@ -358,10 +395,12 @@ export default function MessageInput() {
               )}
             </button>
           </div>
+
+          <div ref={tooltipRef} className="message-input__global-tooltip" />
         </div>
 
         <p className="message-input__hint">
-          vakachat — выбирайте модель и пользуйтесь всеми её возможностями
+          vakachat — выбирай модель и пользуйся всеми её возможностями
         </p>
       </div>
 
@@ -371,11 +410,12 @@ export default function MessageInput() {
         multiple
         accept={
           (canAttachImages ? 'image/*,' : '') +
-          '.txt,.md,.js,.ts,.tsx,.jsx,.py,.json,.csv,.xml,.html,.css,.scss,.yaml,.yml,.sh,.sql,.c,.cpp,.h,.java,.rs,.go,.rb,.php,.swift'
+          (canAttachFiles ? '.docx,' : '') +
+          '.txt,.md,.js,.ts,.tsx,.jsx,.py,.json,.csv,.xml,.html,.css,.scss,.yaml,.yml,.sh,.sql,.c,.cpp,.h,.java,.rs,.go,.rb,.php,.swift,.pdf'
         }
         style={{ display: 'none' }}
         onChange={async (e) => {
-          await handleFiles(Array.from(e.target.files ?? []), canAttachImages);
+          await handleFiles(Array.from(e.target.files ?? []), canAttachImages, canAttachFiles);
           e.target.value = '';
         }}
       />

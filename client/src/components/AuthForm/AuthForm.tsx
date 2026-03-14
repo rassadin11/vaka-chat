@@ -6,6 +6,14 @@ import FormField from "../FormField/FormField";
 import { CheckIcon, EmailIcon, EyeIcon } from "../../assets/icons";
 import { StrengthBar } from "./StrengthBar";
 
+const PromoIcon = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+        <line x1="7" y1="7" x2="7.01" y2="7" />
+    </svg>
+);
+
 export default function AuthForm({ mode, onModeChange }: AuthFormProps): JSX.Element {
     const isRegister = mode === "register";
 
@@ -14,18 +22,19 @@ export default function AuthForm({ mode, onModeChange }: AuthFormProps): JSX.Ele
 
     const {
         fields,
-        submitted,
         success,
-        isFormValid,
         errors,
         isValid,
         strength,
         isLoading,
+        errorMessage,
         setEmail,
         setPassword,
         setConfirm,
+        setPromo,
         touch,
         handleSubmit,
+        setErrorMessage,
     } = useAuthForm(mode);
 
     return (
@@ -35,14 +44,20 @@ export default function AuthForm({ mode, onModeChange }: AuthFormProps): JSX.Ele
                     <button
                         type="button"
                         className={`${styles.modeBtn} ${!isRegister ? styles.modeBtnActive : ""}`}
-                        onClick={() => onModeChange("login")}
+                        onClick={() => {
+                            setErrorMessage('')
+                            onModeChange("login")
+                        }}
                     >
                         Вход
                     </button>
                     <button
                         type="button"
                         className={`${styles.modeBtn} ${isRegister ? styles.modeBtnActive : ""}`}
-                        onClick={() => onModeChange("register")}
+                        onClick={() => {
+                            setErrorMessage('')
+                            onModeChange("register")
+                        }}
                     >
                         Регистрация
                     </button>
@@ -59,7 +74,6 @@ export default function AuthForm({ mode, onModeChange }: AuthFormProps): JSX.Ele
                 </p>
             </header>
 
-            {/* ── Fields ── */}
             <div className={styles.fields} key={mode}>
 
                 {/* Email */}
@@ -87,7 +101,7 @@ export default function AuthForm({ mode, onModeChange }: AuthFormProps): JSX.Ele
                 {/* Password */}
                 <FormField
                     label="Пароль"
-                    hint="мин. 12 символов"
+                    hint="мин. 8 символов"
                     error={errors.password}
                     extra={isRegister && fields.password.length > 0
                         ? <StrengthBar strength={strength} />
@@ -143,9 +157,34 @@ export default function AuthForm({ mode, onModeChange }: AuthFormProps): JSX.Ele
                         </div>
                     </FormField>
                 )}
+
+                {/* Promo code */}
+                {isRegister && (
+                    <FormField
+                        label="Промокод"
+                        hint="если есть"
+                        error={errors.promo}
+                    >
+                        <div className={styles.inputWrap}>
+                            <input
+                                type="text"
+                                className={`${styles.input} ${errors.promo ? styles.inputError : ""}`}
+                                placeholder="LECLERC"
+                                value={fields.promo}
+                                onChange={e => setPromo(e.target.value.toUpperCase())}
+                                onBlur={() => touch("promo")}
+                                autoComplete="off"
+                                maxLength={32}
+                            />
+                            <span className={`${styles.inputIcon} ${styles.inputIconStatic}`}>
+                                <PromoIcon />
+                            </span>
+                        </div>
+                    </FormField>
+                )}
+
             </div>
 
-            {/* ── Submit ── */}
             <button
                 type="button"
                 className={styles.submitBtn}
@@ -158,18 +197,9 @@ export default function AuthForm({ mode, onModeChange }: AuthFormProps): JSX.Ele
                 }
             </button>
 
-            {submitted && !isFormValid && !success && (
+            {errorMessage && (
                 <div className={`${styles.feedback} ${styles.feedbackError}`}>
-                    ⚠ Исправьте ошибки перед отправкой
-                </div>
-            )}
-
-            {success && (
-                <div className={`${styles.feedback} ${styles.feedbackSuccess}`}>
-                    <CheckIcon />
-                    {isRegister
-                        ? "Аккаунт успешно создан. Проверьте email для подтверждения."
-                        : "Вход выполнен успешно."}
+                    {errorMessage}
                 </div>
             )}
         </>

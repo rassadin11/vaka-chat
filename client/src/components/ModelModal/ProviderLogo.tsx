@@ -116,11 +116,11 @@ export function ProviderLogo({ modelId, size = 32 }: ProviderLogoProps) {
   const provider = getProvider(modelId);
   switch (provider) {
     case 'anthropic': return <AnthropicLogo size={size} />;
-    case 'openai':    return <OpenAILogo size={size} />;
-    case 'google':    return <GoogleLogo size={size} />;
-    case 'deepseek':  return <DeepSeekLogo size={size} />;
-    case 'glm':       return <GlmLogo size={size} />;
-    case 'kimi':      return <KimiLogo size={size} />;
-    default:          return <DefaultLogo size={size} />;
+    case 'openai': return <OpenAILogo size={size} />;
+    case 'google': return <GoogleLogo size={size} />;
+    case 'deepseek': return <DeepSeekLogo size={size} />;
+    case 'glm': return <GlmLogo size={size} />;
+    case 'kimi': return <KimiLogo size={size} />;
+    default: return <DefaultLogo size={size} />;
   }
 }

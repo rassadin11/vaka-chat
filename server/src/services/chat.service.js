@@ -1,7 +1,5 @@
 import { prisma } from '../prisma.js';
 
-// ─── ЧАТЫ ────────────────────────────────────────────────────────────────────
-
 export async function createChat(userId, { title, systemPrompt } = {}) {
     const chat = await prisma.chat.create({
         data: {
@@ -20,7 +18,7 @@ export async function getUserChats(userId) {
             userId,
             deletedAt: null,
         },
-        orderBy: { updatedAt: 'desc' }, // свежие чаты сверху
+        orderBy: { updatedAt: 'desc' },
         select: {
             id: true,
             title: true,
@@ -33,17 +31,28 @@ export async function getUserChats(userId) {
     return chats;
 }
 
-// chatService.js
 export async function getChat(chatId, userId) {
     const chat = await prisma.chat.findFirst({
         where: {
             id: chatId,
-            userId,          // пользователь видит только свои чаты
-            deletedAt: null, // soft delete — не отдаём удалённые
+            userId,
+            deletedAt: null,
         },
         include: {
             messages: {
-                orderBy: { createdAt: "asc" },
+                orderBy: { order: 'asc' },
+                include: {
+                    attachments: {
+                        select: {
+                            id: true,
+                            name: true,
+                            mimeType: true,
+                            isImage: true,
+                            size: true,
+                            data: true
+                        },
+                    },
+                },
             },
         },
     });
@@ -68,10 +77,8 @@ export async function updateChatTitle(chatId, userId, title) {
 export async function deleteChat(chatId, userId) {
     await assertChatOwnership(chatId, userId);
 
-    // Soft delete — просто ставим deletedAt, данные не трогаем
-    await prisma.chat.update({
+    await prisma.chat.delete({
         where: { id: chatId },
-        data: { deletedAt: new Date() },
     });
 }
 
@@ -82,41 +89,54 @@ export async function getChatMessages(chatId, userId) {
 
     const messages = await prisma.message.findMany({
         where: { chatId },
-        orderBy: { order: 'asc' }, // хронологический порядок
+        orderBy: { order: 'asc' },
+        include: {
+            attachments: {
+                select: {
+                    id: true,
+                    name: true,
+                    mimeType: true,
+                    isImage: true,
+                    size: true,
+                    data: true
+                },
+            },
+        },
     });
+
+    console.log('[getChatMessages] total:', messages.length);
+    console.log('[getChatMessages] attachments sample:', messages[0]?.attachments);
 
     return messages;
 }
 
-export async function createMessage(chatId, userId, { role, content, model }) {
-    await assertChatOwnership(chatId, userId);
-
-    // Определяем следующий порядковый номер сообщения
-    const lastMessage = await prisma.message.findFirst({
-        where: { chatId },
-        orderBy: { order: 'desc' },
-        select: { order: true },
+export async function createMessage(chatId, userId, { role, content, model, attachments }) {
+    const chat = await prisma.chat.findFirst({
+        where: { id: chatId, userId, deletedAt: null },
     });
 
-    const nextOrder = lastMessage ? lastMessage.order + 1 : 0;
+    if (!chat) throw new Error('Chat not found');
 
-    const message = await prisma.message.create({
+    return prisma.message.create({
         data: {
             chatId,
             role,
             content,
-            model: model ?? null,
-            order: nextOrder,
+            model,
+            attachments: attachments?.length
+                ? {
+                    create: attachments.map(({ name, mimeType, data, isImage, size }) => ({
+                        name,
+                        mimeType,
+                        data,
+                        isImage,
+                        size,
+                    })),
+                }
+                : undefined,
         },
+        include: { attachments: true },
     });
-
-    // Обновляем updatedAt чата — чтобы список чатов сортировался корректно
-    await prisma.chat.update({
-        where: { id: chatId },
-        data: { updatedAt: new Date() },
-    });
-
-    return message;
 }
 
 export async function updateMessage(messageId, chatId, userId, content) {
@@ -141,6 +161,37 @@ export async function updateMessage(messageId, chatId, userId, content) {
         where: { id: messageId },
         data: { content },
     });
+}
+
+export async function removeMessageFromContext(messageId, chatId, userId) {
+    await assertChatOwnership(chatId, userId);
+
+    const message = await prisma.message.findFirst({
+        where: { id: messageId, chatId },
+    });
+
+    if (!message) throw new Error('Сообщение не найдено');
+
+    const newValue = !message.inContext; // ← toggle
+
+    const nextMessage = await prisma.message.findFirst({
+        where: { chatId, order: { gt: message.order }, role: 'assistant' },
+        orderBy: { order: 'asc' },
+    });
+
+    // Обновляем оба в одной транзакции
+    await prisma.$transaction([
+        prisma.message.update({
+            where: { id: messageId },
+            data: { inContext: newValue },
+        }),
+        ...(nextMessage ? [
+            prisma.message.update({
+                where: { id: nextMessage.id },
+                data: { inContext: newValue },
+            }),
+        ] : []),
+    ]);
 }
 
 export async function deleteMessage(messageId, chatId, userId) {

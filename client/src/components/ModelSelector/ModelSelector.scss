@@ -4,7 +4,7 @@
   &__trigger {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0.5rem;
     padding: 6px 12px;
     border: 1px solid var(--border-input);
     border-radius: 8px;
@@ -59,18 +59,18 @@
     left: 0;
     width: 420px;
     max-width: 90vw;
-    background: #1e1e1e;
+    background: var(--bg-chat);
     border: 1px solid var(--border-input);
     border-radius: 10px;
     overflow: hidden;
     z-index: 100;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 12px 40px var(--overlay-dark);
   }
 
   &__search-wrap {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0.5rem;
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
 

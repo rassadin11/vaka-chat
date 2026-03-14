@@ -8,25 +8,71 @@ import {
     generateRefreshToken,
     verifyRefreshToken,
 } from '../utils/jwt.utils.js';
+import { FieldError } from '../errors/errors.js';
 
 const BCRYPT_ROUNDS = 12;
 
-export async function register(email, password, name) {
+export async function register(email, password, name, promoCode) {
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
         throw new Error('Пользователь с таким email уже существует');
     }
 
+    let promo = null;
+    if (promoCode) {
+        promo = await prisma.promoCode.findUnique({
+            where: { code: promoCode.trim().toUpperCase() },
+        });
+
+        if (!promo) {
+            throw new FieldError('promo', 'Промокод не найден');
+        }
+        if (promo.usedCount >= promo.maxUses) {
+            throw new FieldError('promo', 'Промокод больше не действителен');
+        }
+    }
+
     // Поле называется passwordHash — храним только хеш
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
-    const user = await prisma.user.create({
-        data: {
-            email,
-            passwordHash,
-            name,
-            // emailVerified по умолчанию false — прописано в схеме
-        },
+    const user = await prisma.$transaction(async (tx) => {
+        const newUser = await tx.user.create({
+            data: {
+                email,
+                passwordHash,
+                name,
+            },
+        });
+
+        if (promo) {
+            const updated = await tx.promoCode.updateMany({
+                where: {
+                    id: promo.id,
+                    usedCount: { lt: promo.maxUses },
+                },
+                data: { usedCount: { increment: 1 } },
+            });
+
+            if (updated.count === 0) {
+                throw new Error('Промокод был только что использован последний раз');
+            }
+
+            await tx.transaction.create({
+                data: {
+                    userId: newUser.id,
+                    type: 'bonus',
+                    amount: promo.bonus,
+                    description: `Промокод ${promo.code}`,
+                },
+            });
+
+            await tx.user.update({
+                where: { id: newUser.id },
+                data: { balance: { increment: promo.bonus } },
+            });
+        }
+
+        return newUser;
     });
 
     // Токен верификации живёт в отдельной таблице EmailVerificationToken
@@ -41,7 +87,18 @@ export async function register(email, password, name) {
 
     await sendVerificationEmail(email, token);
 
-    return { message: 'Регистрация успешна. Проверьте почту для подтверждения email.' };
+    const accessToken = generateAccessToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+
+    await prisma.refreshToken.create({
+        data: {
+            token: refreshToken,
+            userId: user.id,
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+    });
+
+    return { message: 'Регистрация успешна. Проверьте почту для подтверждения email.', accessToken, refreshToken };
 }
 
 export async function verifyEmail(token) {
@@ -82,10 +139,6 @@ export async function login(email, password) {
 
     if (!user || !isPasswordValid) {
         throw new Error('Неверный email или пароль');
-    }
-
-    if (!user.emailVerified) {
-        throw new Error('Сначала подтвердите ваш email');
     }
 
     const accessToken = generateAccessToken(user.id);

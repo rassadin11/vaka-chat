@@ -1,11 +1,12 @@
-import type { OpenRouterModel, Attachment } from '../types';
-import { getAccessToken } from './client';
+import type { Attachment, Model } from '../types';
+import { authApi } from './auth';
+import { clearAccessToken, getAccessToken, setAccessToken } from './client';
 
 import { client } from "./client"; // твой настроенный axios/fetch клиент
 
-export async function fetchModels(): Promise<OpenRouterModel[]> {
-  const data = await client.get<{ data: OpenRouterModel[] }>("/models");
-  return data.data;
+export async function fetchModels(): Promise<Model[]> {
+  const data = await client.get<Model[]>("/models");
+  return data;
 }
 
 type ContentPart =
@@ -40,97 +41,160 @@ export interface StreamOptions {
   imageModel?: boolean;
 }
 
-function urlToMarkdown(url: string): string {
-  return `![](<${url}>)`;
+interface StreamChatParams {
+  chatId: string;
+  userId: string;
+  message: string;
+  price: {
+    income: number,
+    outcome: number
+  },
+  maxTokens: number,
+  contextLimit: number;
+  model: string;
+  modelName: string;
+  options?: StreamOptions;
+  signal?: AbortSignal;
+  attachments?: Attachment[];
 }
 
-function extractContent(content: unknown): string {
-  if (typeof content === 'string') {
-    const trimmed = content.trim();
-    // Если строка — это URL картинки, оборачиваем в markdown-изображение
-    if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('data:image/')) {
-      return urlToMarkdown(trimmed);
-    }
-    return trimmed;
-  }
-  if (Array.isArray(content)) {
-    return content
-      .map((part: { type: string; text?: string; image_url?: { url: string }; url?: string }) => {
-        if (part.type === 'text') return part.text ?? '';
-        if (part.type === 'image_url') {
-          const url = part.image_url?.url ?? part.url;
-          return url ? urlToMarkdown(url) : '';
-        }
-        return '';
-      })
-      .filter(Boolean)
-      .join('\n\n');
-  }
-  return '';
+interface StreamChatCallbacks {
+  onChunk: (chunk: string) => void;
+  onDone: () => void;
+  onError: (error: Error) => void;
+  onImage?: (url: string, content: string) => void;
+  onSync?: (userMessageId: string) => void;
 }
+
+const API_BASE = 'http://localhost:3000/api';
+
+// ── Helpers ──────────────────────────────────────────────────
+
+async function getValidToken(): Promise<string | null> {
+  const token = getAccessToken();
+  if (token) return token;
+
+  try {
+    const { accessToken } = await authApi.refresh();
+    setAccessToken(accessToken);
+    return accessToken;
+  } catch {
+    clearAccessToken();
+    window.location.href = '/login';
+    return null;
+  }
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const response = await fetch(url, init);
+  if (response.status !== 401) return response;
+
+  // Один retry после refresh
+  const { accessToken } = await authApi.refresh();
+  setAccessToken(accessToken);
+
+  return fetch(url, {
+    ...init,
+    headers: {
+      ...init.headers,
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+}
+
+function extractDelta(parsed: any, callbacks: StreamChatCallbacks) {
+  const delta = parsed.choices?.[0]?.delta?.content;
+
+  if (typeof delta === 'string') {
+    callbacks.onChunk(delta);
+    return;
+  }
+
+  if (Array.isArray(delta)) {
+    for (const part of delta) {
+      if (part.type === 'text') callbacks.onChunk(part.text);
+      else if (part.type === 'image_url' && callbacks.onImage) {
+        callbacks.onImage(part.image_url.url, part.content);
+      }
+    }
+  }
+}
+
+// ── Main ─────────────────────────────────────────────────────
 
 export async function streamChat(
-  chatId: string,
-  userMessage: string,
-  model: string,
-  onChunk: (chunk: string) => void,
-  onDone: () => void,
-  onError: (error: Error) => void,
-  options?: StreamOptions,
-  signal?: AbortSignal,
-  onImage?: (url: string, content: string) => void,
+  params: StreamChatParams,
+  callbacks: StreamChatCallbacks,
 ): Promise<void> {
-  const token = getAccessToken();
+  const { chatId, userId, message, price, maxTokens, contextLimit, model, modelName, options, signal, attachments } = params;
+  const { onChunk, onDone, onError, onImage, onSync } = callbacks;
+
+  const token = await getValidToken();
   if (!token) {
-    onError(new Error('Unauthorized: no access token'));
+    onError(new Error('Session expired'));
     return;
   }
 
   const isImageModel = options?.imageModel ?? false;
 
-  const body: Record<string, unknown> = {
+  const body = {
     chatId,
-    userMessage,
+    userId,
+    role: 'user',
+    content: message,
+    price,
+    maxTokens,
+    contextLimit,
     model,
+    modelName,
     isImageModel,
-    ...(options?.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
-    ...(options?.plugins?.length ? { plugins: options.plugins } : {}),
+    ...(options?.systemPrompt && { systemPrompt: options.systemPrompt }),
+    ...(options?.plugins?.length && { plugins: options.plugins }),
+    ...(attachments?.length && { attachments }),
   };
 
   let response: Response;
+
   try {
-    response = await fetch(`${import.meta.env.BASE_URL}/chats/${chatId}/proxy`, {
+    response = await fetchWithRetry(`${API_BASE}/chats/${chatId}/messages`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
       signal,
     });
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') { onDone(); return; }
-    onError(err instanceof Error ? err : new Error('Network error'));
-    return;
-  }
 
-  if (response.status === 401) {
-    onError(new Error('Unauthorized: token expired'));
+    // refresh тоже мог упасть внутри fetchWithRetry
+    if (err instanceof Error && err.message.includes('fetch')) {
+      clearAccessToken();
+      window.location.href = '/login';
+    }
+
+    onError(err instanceof Error ? err : new Error('Network error'));
     return;
   }
 
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
-    const message = detail?.error ?? `API error: ${response.status}`;
-    onError(new Error(message));
+    onError(new Error(detail?.error ?? `API error: ${response.status}`));
     return;
   }
 
-  // ── IMAGE MODEL ──────────────────────────────────────────────
+  // ── Image model (не стрим) ───────────────────────────────
+
   if (isImageModel) {
     try {
       const data = await response.json();
-      const text = extractContent(data.choices?.[0]?.message?.content);
+      const content = data.choices?.[0]?.message?.content ?? '';
+      const text = typeof content === 'string' ? content : JSON.stringify(content);
       const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
 
       if (imageUrl && onImage) onImage(imageUrl, text);
@@ -143,7 +207,8 @@ export async function streamChat(
     return;
   }
 
-  // ── STREAMING ────────────────────────────────────────────────
+  // ── SSE stream ───────────────────────────────────────────
+
   if (!response.body) {
     onError(new Error('No response body'));
     return;
@@ -152,43 +217,41 @@ export async function streamChat(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
 
+  signal?.addEventListener('abort', () => reader.cancel());
+
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
+      if (signal?.aborted) {
+        await reader.cancel();
+        onDone();
+        return;
+      }
+
       const chunk = decoder.decode(value, { stream: true });
 
       for (const line of chunk.split('\n')) {
         if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') { onDone(); return; }
 
-        try {
-          const parsed = JSON.parse(data);
+        const raw = line.slice(6).trim();
+        if (raw === '[DONE]') continue;
 
-          // Ошибка внутри стрима (бэкенд прислал {"error":...})
-          if (parsed.error) {
-            onError(new Error(parsed.error));
-            return;
-          }
+        const parsed = JSON.parse(raw);
 
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (typeof delta === 'string') {
-            onChunk(delta);
-          } else if (Array.isArray(delta)) {
-            for (const part of delta) {
-              if (part.type === 'text') onChunk(part.text);
-              else if (part.type === 'image_url' && onImage) onImage(part.image_url.url, part.content);
-            }
-          }
-        } catch {
-          // игнорируем невалидный JSON
+        if (parsed.type === 'done') {
+          callbacks.onSync?.(parsed.userMessageId);
+          callbacks.onDone();
+          return;
         }
+
+        extractDelta(parsed, callbacks);
       }
     }
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') { onDone(); return; }
+    if (signal?.aborted) { onDone(); return; } // reader.cancel() тоже может бросить
     onError(err instanceof Error ? err : new Error('Stream read error'));
     return;
   }

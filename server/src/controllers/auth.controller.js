@@ -11,19 +11,45 @@ const REFRESH_COOKIE_OPTIONS = {
 
 export async function register(req, res) {
     try {
-        const { email, password, name } = req.body; // добавили name
+        const { email, password, name, promo } = req.body;
 
-        if (!email || !password || !name) {
-            return res.status(400).json({ error: 'Email, пароль и имя обязательны' });
-        }
-        if (password.length < 8) {
-            return res.status(400).json({ error: 'Пароль должен быть минимум 8 символов' });
+        const fieldErrors = {};
+
+        if (!email) fieldErrors.email = 'Email обязателен';
+        if (!password) fieldErrors.password = 'Пароль обязателен';
+        if (!name) fieldErrors.name = 'Имя обязательно';
+
+        if (password && password.length < 8) {
+            fieldErrors.password = 'Пароль должен быть минимум 8 символов';
         }
 
-        const result = await authService.register(email, password, name);
-        res.status(201).json(result);
+        if (Object.keys(fieldErrors).length > 0) {
+            return res.status(400).json({ fields: fieldErrors });
+        }
+
+        const result = await authService.register(email, password, name, promo);
+
+        res.cookie('refreshToken', result.refreshToken, REFRESH_COOKIE_OPTIONS);
+        res.status(201).json({ message: result.message, accessToken: result.accessToken });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        const fieldMap = {
+            'Пользователь с таким email уже существует': { field: 'email' },
+            'Промокод не найден': { field: 'promo' },
+            'Промокод больше не действителен': { field: 'promo' },
+            'Промокод был только что использован последний раз': { field: 'promo' },
+        };
+
+        const mapped = fieldMap[error.message];
+
+        if (mapped) {
+            return res.status(400).json({
+                fields: { [mapped.field]: error.message },
+            });
+        }
+
+        // Неизвестная ошибка — не светим детали наружу
+        console.error('Register error:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
     }
 }
 

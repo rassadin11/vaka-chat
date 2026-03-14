@@ -1,7 +1,7 @@
 .model-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--overlay-dark);
   backdrop-filter: blur(4px);
   z-index: 1000;
   display: flex;
@@ -9,11 +9,16 @@
   justify-content: center;
   padding: 20px;
   animation: overlay-in 0.2s ease forwards;
+
+  @media (max-width: 768px) {
+    padding: 0;
+    align-items: flex-end; // снизу вверх на мобиле — удобнее
+  }
 }
 
 .model-modal {
-  background: #1a1a1a;
-  border: 1px solid #333;
+  background: var(--bg-chat);
+  border: 1px solid var(--border-code);
   border-radius: 14px;
   width: min(1060px, 100%);
   height: 82vh;
@@ -21,15 +26,26 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 24px 80px var(--overlay-dark);
+
+  @media (max-width: 768px) {
+    width: 100%;
+    height: 100dvh; // dvh учитывает мобильный браузер с адресной строкой
+    border-radius: 0;
+    animation: modal-in-mobile 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
 
   &__header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 18px 24px 16px;
-    border-bottom: 1px solid #2a2a2a;
+    border-bottom: 1px solid var(--bg-hover);
     flex-shrink: 0;
+
+    @media (max-width: 768px) {
+      padding: 14px 16px 12px;
+    }
   }
 
   &__title {
@@ -44,7 +60,7 @@
     justify-content: center;
     width: 30px;
     height: 30px;
-    border: 1px solid #333;
+    border: 1px solid var(--border-code);
     border-radius: 7px;
     background: transparent;
     color: var(--text-secondary);
@@ -53,8 +69,8 @@
 
     &:hover {
       color: var(--text-primary);
-      border-color: #555;
-      background: #2a2a2a;
+      border-color: var(--modal-close);
+      background: var(--bg-hover);
     }
   }
 
@@ -63,12 +79,16 @@
     align-items: center;
     gap: 10px;
     padding: 12px 20px;
-    border-bottom: 1px solid #2a2a2a;
+    border-bottom: 1px solid var(--bg-hover);
     flex-shrink: 0;
 
     svg:first-child {
       color: var(--text-secondary);
       flex-shrink: 0;
+    }
+
+    @media (max-width: 768px) {
+      padding: 10px 16px;
     }
   }
 
@@ -94,14 +114,14 @@
     height: 22px;
     border: none;
     border-radius: 50%;
-    background: #333;
+    background: var(--border-code);
     color: var(--text-secondary);
     cursor: pointer;
     flex-shrink: 0;
     transition: background 0.15s;
 
     &:hover {
-      background: #444;
+      background: var(--border-hover);
     }
   }
 
@@ -110,8 +130,18 @@
     align-items: center;
     gap: 6px;
     padding: 10px 16px;
-    border-bottom: 1px solid #2a2a2a;
+    border-bottom: 1px solid var(--bg-hover);
     flex-shrink: 0;
+
+    @media (max-width: 550px) {
+      overflow-x: auto;
+      flex-wrap: nowrap;
+      scrollbar-width: none;
+
+      &::-webkit-scrollbar {
+        display: none;
+      }
+    }
   }
 
   &__sort-label {
@@ -126,7 +156,7 @@
     align-items: center;
     gap: 4px;
     padding: 4px 10px;
-    border: 1px solid #333;
+    border: 1px solid var(--border-code);
     border-radius: 20px;
     background: transparent;
     color: var(--text-secondary);
@@ -138,8 +168,8 @@
 
     &:hover {
       color: var(--text-primary);
-      border-color: #555;
-      background: #2a2a2a;
+      border-color: var(--modal-close);
+      background: var(--bg-hover);
     }
 
     &--active {
@@ -165,10 +195,22 @@
   &__grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
+    gap: 0.5rem;
     padding: 14px 16px 18px;
     overflow-y: auto;
     overflow-x: hidden;
+
+    @media (max-width: 768px) {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    @media (max-width: 550px) {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    @media (max-width: 360px) {
+      grid-template-columns: 1fr;
+    }
   }
 
   &__empty {
@@ -190,7 +232,7 @@
     text-transform: uppercase;
     color: var(--text-secondary);
     padding: 6px 2px 4px;
-    border-bottom: 1px solid #2a2a2a;
+    border-bottom: 1px solid var(--bg-hover);
     margin-bottom: 2px;
 
     svg {
@@ -211,16 +253,21 @@
   gap: 5px;
   padding: 12px 10px 10px;
   min-width: 0;
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--bg-hover);
   border-radius: 10px;
-  background: #1e1e1e;
+  background: var(--bg-chat);
   cursor: pointer;
   text-align: left;
   transition: border-color 0.15s, background 0.15s, transform 0.1s;
 
+
+  @media (max-width: 550px) {
+    padding: 10px 8px 8px;
+  }
+
   &:hover {
-    border-color: #444;
-    background: #242424;
+    border-color: var(--border-hover);
+    background: var(--bg-hover);
     transform: translateY(-1px);
   }
 
@@ -248,7 +295,7 @@
   }
 
   &__name {
-    font-size: 16px;
+    font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
     line-height: 1.3;
@@ -257,11 +304,15 @@
   &__id {
     font-size: 14px;
     color: var(--text-secondary);
-    font-family: 'Roboto Mono', monospace;
+    font-family: 'Inter Mono', monospace;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     opacity: 0.8;
+
+    @media (max-width: 550px) {
+      display: none; // на маленьких экранах убираем id — экономим место
+    }
   }
 
   &__badges {
@@ -290,12 +341,17 @@
       background: rgba(99, 102, 241, 0.12);
       color: #818cf8;
     }
+
+    &--file {
+      background: rgba(16, 185, 129, 0.12);
+      color: #10b981;
+    }
   }
 
   &__price {
     margin-top: auto;
     padding-top: 8px;
-    border-top: 1px solid #2a2a2a;
+    border-top: 1px solid var(--bg-hover);
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -307,7 +363,7 @@
     gap: 4px;
     font-size: 14px;
     color: var(--text-secondary);
-    font-family: 'Roboto Mono', monospace;
+    font-family: 'Inter Mono', monospace;
   }
 
   &__price-arrow {
@@ -336,13 +392,23 @@
 }
 
 @keyframes overlay-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes overlay-out {
-  from { opacity: 1; }
-  to   { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
 }
 
 @keyframes modal-in {
@@ -350,6 +416,7 @@
     opacity: 0;
     transform: translateY(12px) scale(0.97);
   }
+
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -361,9 +428,22 @@
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+
   to {
     opacity: 0;
     transform: translateY(10px) scale(0.97);
+  }
+}
+
+@keyframes modal-in-mobile {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

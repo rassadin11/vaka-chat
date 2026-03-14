@@ -45,21 +45,38 @@ model Chat {
 }
 
 model Message {
-  id           String   @id @default(cuid())
-  chatId       String
-  role         String // "user" | "assistant" | "system"
-  content      String
-  model        String? // "anthropic/claude-3.5-sonnet" — только для assistant
-  inputTokens  Int?
-  outputTokens Int?
-  cost         Decimal? @db.Decimal(10, 6)
-  createdAt    DateTime @default(now())
-  order        Int
+  id             String   @id @default(cuid())
+  chatId         String
+  role           String // "user" | "assistant" | "system"
+  content        String
+  model          String? // "anthropic/claude-3.5-sonnet" — только для assistant
+  modelName      String? // "Claude 3.5 Sonnet" — для удобства, можно не сохранять и дергать по модели
+  inputTokens    Int?
+  outputTokens   Int?
+  cost           Decimal? @db.Decimal(10, 6)
+  createdAt      DateTime @default(now())
+  hasAttachments Boolean  @default(false)
+  order          Int
+  inContext      Boolean  @default(true)
 
   chat         Chat          @relation(fields: [chatId], references: [id], onDelete: Cascade)
   transactions Transaction[]
+  attachments  Attachment[]
 
   @@index([chatId, order])
+}
+
+model Attachment {
+  id            String  @id @default(cuid())
+  messageId     String
+  name          String
+  mimeType      String
+  data          String  @db.Text // base64 или текст — нужен Text, не String
+  isImage       Boolean
+  size          Int
+  extractedText String?
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 }
 
 model Transaction {
@@ -111,4 +128,13 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([token])
+}
+
+model PromoCode {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  maxUses   Int
+  usedCount Int      @default(0)
+  bonus     Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
 }

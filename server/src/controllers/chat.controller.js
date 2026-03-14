@@ -1,5 +1,21 @@
 // controllers/chat.controller.js
 import * as chatService from '../services/chat.service.js';
+import { prisma } from '../prisma.js'
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getNextMessageOrder, saveAssistantMessage } from '../utils/saveAssistantMessage.js'
+
+async function extractPdfText(buffer) {
+    const doc = await getDocument({ data: buffer }).promise;
+    const pages = [];
+
+    for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        pages.push(content.items.map(item => item.str).join(' '));
+    }
+
+    return pages.join('\n');
+}
 
 // ─── ЧАТЫ ────────────────────────────────────────────────────────────────────
 
@@ -24,8 +40,8 @@ export async function getUserChats(req, res) {
 
 export async function getChat(req, res) {
     try {
-        const { id } = req.params;
-        const chat = await chatService.getChat(id, req.userId);
+        const { chatId } = req.params;
+        const chat = await chatService.getChat(chatId, req.userId);
         res.json(chat);
     } catch (error) {
         const status = error.message === "Chat not found" ? 404 : 400;
@@ -53,7 +69,7 @@ export async function deleteChat(req, res) {
     try {
         const { chatId } = req.params;
         await chatService.deleteChat(chatId, req.userId);
-        res.status(204).send(); // 204 No Content — успех без тела ответа
+        res.status(204).send();
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -71,27 +87,362 @@ export async function getChatMessages(req, res) {
     }
 }
 
+function buildUserMessageContent(text, attachments) {
+    if (!attachments?.length) return text;
+
+    const parts = [{ type: 'text', text }];
+
+    for (const a of attachments) {
+        if (a.extractedText) {
+            parts.push({
+                type: 'text',
+                text: `[Документ: ${a.name}]\n\n${a.extractedText}`,
+            });
+        } else if (a.isImage) {
+            parts.push({
+                type: 'image_url',
+                image_url: { url: a.data },
+            });
+        }
+    }
+
+    return parts;
+}
+
 export async function createMessage(req, res) {
-    try {
-        const { chatId } = req.params;
-        const { role, content, model } = req.body;
+    const { chatId } = req.params;
+    const { role, userId, content, model, price, maxTokens, contextLimit, modelName, attachments, systemPrompt, plugins, isImageModel } = req.body;
 
-        if (!content || content.trim().length === 0) {
-            return res.status(400).json({ error: 'Сообщение не может быть пустым' });
+    if (!content?.trim()) {
+        return res.status(400).json({ error: 'Сообщение не может быть пустым' });
+    }
+
+    const VALID_ROLES = ['user', 'assistant', 'system'];
+    if (!role || !VALID_ROLES.includes(role)) {
+        return res.status(400).json({ error: `role должен быть одним из: ${VALID_ROLES.join(', ')}` });
+    }
+
+    if (attachments !== undefined) {
+        if (!Array.isArray(attachments)) {
+            return res.status(400).json({ error: 'attachments должен быть массивом' });
         }
-
-        const VALID_ROLES = ['user', 'assistant', 'system'];
-        if (!role || !VALID_ROLES.includes(role)) {
-            return res.status(400).json({ error: `role должен быть одним из: ${VALID_ROLES.join(', ')}` });
+        if (attachments.length > 10) {
+            return res.status(400).json({ error: 'Максимум 10 файлов' });
         }
+        for (const a of attachments) {
+            if (!a.name || !a.mimeType || !a.data || typeof a.isImage !== 'boolean') {
+                return res.status(400).json({ error: 'Некорректный формат вложения' });
+            }
+            if (a.size > 10 * 1024 * 1024) {
+                return res.status(400).json({ error: `Файл ${a.name} превышает 10MB` });
+            }
+        }
+    }
 
-        const message = await chatService.createMessage(chatId, req.userId, {
-            role,
+    const chat = await chatService.getChat(chatId, userId);
+    if (!chat) {
+        return res.status(403).json({ error: 'Chat not found or access denied' });
+    }
+
+    if (role !== 'user') {
+        try {
+            const message = await chatService.createMessage(chatId, userId, {
+                role,
+                content: content.trim(),
+                model,
+                attachments,
+            });
+            return res.status(201).json(message);
+        } catch (err) {
+            return res.status(400).json({ error: err.message });
+        }
+    }
+
+    if (!model) {
+        return res.status(400).json({ error: 'model is required for user messages' });
+    }
+
+    // ── Создаём controller ДО любых await ────────────────────────
+    const controller = new AbortController();
+    const abort = () => {
+        if (!controller.signal.aborted) {
+            controller.abort();
+        }
+    };
+
+    req.on('close', abort);
+    req.on('error', abort);
+    res.on('close', abort);  // ← res.close надёжнее req.close при SSE
+    res.on('finish', () => console.log('[res finish]'));
+
+    const userOrder = await getNextMessageOrder(chatId);
+
+    const history = await prisma.message.findMany({
+        where: {
+            chatId,
+            inContext: true,
+        },
+        orderBy: { order: 'asc' },
+        select: {
+            role: true,
+            content: true,
+            attachments: {
+                select: {
+                    name: true,
+                    mimeType: true,
+                    data: true,
+                    isImage: true,
+                    extractedText: true,
+                },
+            },
+        },
+    });
+
+    const processedAttachments = [];
+    for (const a of (attachments ?? [])) {
+        if (a.mimeType === 'application/pdf') {
+            try {
+                const base64 = a.data.split(',')[1];
+                const buffer = new Uint8Array(Buffer.from(base64, 'base64'));
+                const text = await extractPdfText(buffer);
+                processedAttachments.push({ ...a, extractedText: text, isDocument: true });
+            } catch (err) {
+                console.error(`[PDF parse error] ${a.name}:`, err.message);
+                processedAttachments.push(a);
+            }
+        } else {
+            processedAttachments.push(a);
+        }
+    }
+
+    const msg = await prisma.message.create({
+        data: {
+            chatId,
+            role: 'user',
             content: content.trim(),
-            model,
+            order: userOrder,
+            attachments: processedAttachments?.length
+                ? {
+                    create: processedAttachments.map(a => ({
+                        name: a.name,
+                        mimeType: a.mimeType,
+                        data: a.data,
+                        isImage: a.isImage,
+                        size: a.size,
+                        extractedText: a.extractedText,
+                    })),
+                }
+                : undefined,
+        },
+    });
+
+    const userContent = buildUserMessageContent(content.trim(), processedAttachments);
+    const allHistory = history.slice(0, -1).map((msg) => ({
+        role: msg.role,
+        content: msg.attachments?.length
+            ? buildUserMessageContent(msg.content, msg.attachments)
+            : msg.content,
+    }));
+
+    const historyForAI = contextLimit
+        ? (() => {
+            let userCount = 0;
+            const cutIndex = allHistory.reduceRight((acc, msg, i) => {
+                if (acc !== -1) return acc;
+                if (msg.role === 'user') userCount++;
+                if (userCount === contextLimit) return i;
+                return -1;
+            }, -1);
+
+            return cutIndex === -1 ? allHistory : allHistory.slice(cutIndex);
+        })()
+        : allHistory;
+
+    const messagesForAI = [
+        ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+        ...historyForAI,
+        { role: 'user', content: userContent },
+    ];
+
+    const requestBody = {
+        model,
+        messages: messagesForAI,
+        maxTokens: Math.min(maxTokens, 32768),
+        ...(isImageModel ? {} : { stream: true }),
+        ...(plugins?.length ? { plugins: plugins.map((id) => ({ id })) } : {}),
+    };
+
+    // ── Если клиент уже отключился пока мы возились с БД ─────────
+    if (controller.signal.aborted) return res.end();
+
+    let upstreamResponse;
+    try {
+        upstreamResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+            signal: controller.signal,
+        });
+    } catch (err) {
+        if (err.name === 'AbortError') return res.end();
+        return res.status(502).json({ error: 'Failed to reach upstream API' });
+    }
+
+    if (!upstreamResponse.ok) {
+        const text = await upstreamResponse.text().catch(() => '');
+        console.error('[OpenRouter error]', upstreamResponse.status, text);
+        return res.status(upstreamResponse.status).json({
+            error: `Upstream API error: ${upstreamResponse.status}`,
+            detail: text,
+        });
+    }
+
+    // ── Image model ───────────────────────────────────────────────
+    if (isImageModel) {
+        let data;
+        try {
+            data = await upstreamResponse.json();
+        } catch {
+            return res.status(502).json({ error: 'Failed to parse image response' });
+        }
+
+        const responseContent = data.choices?.[0]?.message?.content ?? '';
+        const text = typeof responseContent === 'string' ? responseContent : JSON.stringify(responseContent);
+        const usage = data.usage ?? {};
+
+        const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+
+        let imageAttachment = null;
+        if (imageUrl) {
+            try {
+                const imgRes = await fetch(imageUrl);
+                const mimeType = imgRes.headers.get('content-type') ?? 'image/png';
+                const buffer = await imgRes.arrayBuffer();
+                const base64 = Buffer.from(buffer).toString('base64');
+
+                imageAttachment = {
+                    name: `generated-${Date.now()}.png`,
+                    mimeType,
+                    data: `data:${mimeType};base64,${base64}`,
+                    isImage: true,
+                    size: buffer.byteLength,
+                };
+            } catch (err) {
+                console.error('[image download error]', err.message);
+            }
+        }
+
+        const assistantOrder = await getNextMessageOrder(chatId);
+
+        const assistantMsg = await prisma.message.create({
+            data: {
+                chatId,
+                role: 'assistant',
+                content: text,
+                model,
+                modelName,
+                inputTokens: usage.prompt_tokens ?? null,
+                outputTokens: usage.completion_tokens ?? null,
+                order: assistantOrder,
+                hasAttachments: !!imageAttachment,
+                attachments: imageAttachment
+                    ? { create: imageAttachment }
+                    : undefined,
+            },
         });
 
-        res.status(201).json(message);
+        return res.json({ ...data, userMessageId: msg.id, assistantMessageId: assistantMsg.id });
+    }
+
+    // ── SSE stream ────────────────────────────────────────────────
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    let accumulated = '';
+    let usage = null;
+
+    const reader = upstreamResponse.body.getReader();
+    const onAbort = () => {
+        reader.cancel().catch(() => { });
+    };
+
+    controller.signal.addEventListener('abort', onAbort);
+
+    await (async () => {
+        try {
+            while (true) {
+                if (controller.signal.aborted) break;
+
+                let result;
+                try {
+                    result = await reader.read();
+                } catch {
+                    break; // AbortError от reader.cancel() — выходим
+                }
+
+                if (result.done) break;
+
+                const rawChunk = Buffer.from(result.value);
+                res.write(rawChunk);
+
+                const chunkText = rawChunk.toString('utf8');
+
+                for (const line of chunkText.split('\n')) {
+                    if (!line.startsWith('data: ')) continue;
+                    const raw = line.slice(6).trim();
+                    if (raw === '[DONE]') continue;
+
+                    let parsed;
+                    try { parsed = JSON.parse(raw); } catch { continue; }
+
+                    const delta = parsed.choices?.[0]?.delta?.content;
+                    if (typeof delta === 'string') {
+                        accumulated += delta;
+                    } else if (Array.isArray(delta)) {
+                        for (const part of delta) {
+                            if (part.type === 'text') accumulated += part.text;
+                        }
+                    }
+
+                    if (parsed.usage) usage = parsed.usage;
+                }
+            }
+        } catch {
+            if (!res.writableEnded) {
+                res.write(`data: {"error":"Stream interrupted"}\n\n`);
+            }
+        } finally {
+            controller.signal.removeEventListener('abort', onAbort);
+            reader.cancel().catch(() => { });
+        }
+    })().catch(() => { });
+
+    await saveAssistantMessage({
+        chatId, accumulated, usage, model, modelName,
+        messagesForAI,
+        aborted: controller.signal.aborted,
+        price: {
+            income: price.income,
+            outcome: price.outcome,
+        }
+    });
+
+    if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ type: 'done', userMessageId: msg.id })}\n\n`);
+        res.end();
+    }
+}
+
+export async function removeMessageFromContext(req, res) {
+    try {
+        const { chatId, messageId } = req.params;
+        console.log(messageId, chatId, req.userId)
+        await chatService.removeMessageFromContext(messageId, chatId, req.userId);
+        res.status(204).send();
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -125,209 +476,5 @@ export async function deleteMessage(req, res) {
         res.status(204).send();
     } catch (error) {
         res.status(400).json({ error: error.message });
-    }
-}
-
-async function getNextMessageOrder(chatId) {
-    const last = await prisma.message.findFirst({
-        where: { chatId },
-        orderBy: { order: 'desc' },
-        select: { order: true },
-    });
-    return (last?.order ?? -1) + 1;
-}
-
-export async function proxyChatRequest(req, res) {
-    const { chatId, userId, userMessage, model, plugins, systemPrompt, isImageModel } = req.body;
-
-    // Бэкенд сам достаёт историю из БД:
-    const history = await prisma.message.findMany({
-        where: { chatId, chat: { userId, deletedAt: null } },
-        orderBy: { order: 'asc' },
-        select: { role: true, content: true },
-    });
-
-    // Собираем messages для OpenRouter:
-    const messages = [
-        ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-        ...history,
-        { role: 'user', content: userMessage },
-    ];
-
-    // --- Валидация ---
-    if (!chatId || !userId) {
-        return res.status(400).json({ error: 'chatId and userId are required' });
-    }
-    if (!model || !Array.isArray(messages) || messages.length === 0) {
-        return res.status(400).json({ error: 'model and messages are required' });
-    }
-
-    // --- Проверка что чат принадлежит пользователю ---
-    const chat = await prisma.chat.findFirst({
-        where: { id: chatId, userId, deletedAt: null },
-    });
-    if (!chat) {
-        return res.status(403).json({ error: 'Chat not found or access denied' });
-    }
-
-    // --- Записываем сообщение пользователя ---
-    if (!userMessage || userMessage.role !== 'user') {
-        return res.status(400).json({ error: 'Last message must be from user' });
-    }
-
-    const userOrder = await getNextMessageOrder(chatId);
-    await prisma.message.create({
-        data: {
-            chatId,
-            role: 'user',
-            content: typeof userMessage.content === 'string'
-                ? userMessage.content
-                : JSON.stringify(userMessage.content),
-            order: userOrder,
-        },
-    });
-
-    // --- Строим тело запроса для OpenRouter ---
-    const allMessages = [
-        ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-        ...messages,
-    ];
-    const body = {
-        model,
-        messages: allMessages,
-        ...(isImageModel ? {} : { stream: true }),
-        ...(plugins?.length ? { plugins: plugins.map((id) => ({ id })) } : {}),
-    };
-
-    // --- AbortController для отмены upstream при дисконнекте клиента ---
-    const controller = new AbortController();
-    req.on('close', () => controller.abort());
-
-    let upstreamResponse;
-    try {
-        upstreamResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-            signal: controller.signal,
-        });
-    } catch (err) {
-        if (err.name === 'AbortError') return res.end();
-        return res.status(502).json({ error: 'Failed to reach upstream API' });
-    }
-
-    if (!upstreamResponse.ok) {
-        const text = await upstreamResponse.text().catch(() => '');
-        return res.status(upstreamResponse.status).json({
-            error: `Upstream API error: ${upstreamResponse.status}`,
-            detail: text,
-        });
-    }
-
-    // ============================================================
-    // IMAGE MODEL — не стрим, простой JSON
-    // ============================================================
-    if (isImageModel) {
-        let data;
-        try {
-            data = await upstreamResponse.json();
-        } catch {
-            return res.status(502).json({ error: 'Failed to parse image response' });
-        }
-
-        const content = data.choices?.[0]?.message?.content ?? '';
-        const text = typeof content === 'string' ? content : JSON.stringify(content);
-        const usage = data.usage ?? {};
-
-        const assistantOrder = await getNextMessageOrder(chatId);
-        await prisma.message.create({
-            data: {
-                chatId,
-                role: 'assistant',
-                content: text,
-                model,
-                inputTokens: usage.prompt_tokens ?? null,
-                outputTokens: usage.completion_tokens ?? null,
-                order: assistantOrder,
-            },
-        });
-
-        return res.json(data);
-    }
-
-    // ============================================================
-    // STREAMING — SSE proxy с аккумуляцией ответа
-    // ============================================================
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
-    let accumulated = '';
-    let usage = null;
-
-    try {
-        for await (const rawChunk of upstreamResponse.body) {
-            // Прокидываем чанк клиенту AS-IS
-            res.write(rawChunk);
-
-            // Параллельно парсим для БД
-            const text = Buffer.isBuffer(rawChunk)
-                ? rawChunk.toString('utf8')
-                : new TextDecoder().decode(rawChunk);
-
-            for (const line of text.split('\n')) {
-                if (!line.startsWith('data: ')) continue;
-                const raw = line.slice(6).trim();
-                if (raw === '[DONE]') continue;
-
-                let parsed;
-                try { parsed = JSON.parse(raw); } catch { continue; }
-
-                // Аккумулируем текст
-                const delta = parsed.choices?.[0]?.delta?.content;
-                if (typeof delta === 'string') {
-                    accumulated += delta;
-                } else if (Array.isArray(delta)) {
-                    for (const part of delta) {
-                        if (part.type === 'text') accumulated += part.text;
-                    }
-                }
-
-                // usage приходит в последнем чанке
-                if (parsed.usage) usage = parsed.usage;
-            }
-        }
-    } catch (err) {
-        if (err.name !== 'AbortError') {
-            // Сообщаем клиенту об ошибке в SSE-формате
-            res.write(`data: {"error":"Stream interrupted"}\n\n`);
-        }
-        res.end();
-        return;
-    }
-
-    res.end();
-
-    // --- Записываем ответ ассистента в БД (после завершения стрима) ---
-    if (accumulated) {
-        try {
-            const assistantOrder = await getNextMessageOrder(chatId);
-            await prisma.message.create({
-                data: {
-                    chatId,
-                    role: 'assistant',
-                    content: accumulated,
-                    model,
-                    inputTokens: usage?.prompt_tokens ?? null,
-                    outputTokens: usage?.completion_tokens ?? null,
-                    order: assistantOrder,
-                },
-            });
-        } catch (err) {
-            console.error('[proxyChatRequest] Failed to save assistant message:', err);
-        }
     }
 }

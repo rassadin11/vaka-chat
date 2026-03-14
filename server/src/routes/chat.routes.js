@@ -18,8 +18,8 @@ router.get('/:chatId', chatController.getChat);
 // Сообщения
 router.get('/:chatId/messages', chatController.getChatMessages);
 router.post('/:chatId/messages', chatController.createMessage);
+router.patch('/:chatId/messages/delete-context/:messageId', chatController.removeMessageFromContext);
 router.patch('/:chatId/messages/:messageId', chatController.updateMessage);
 router.delete('/:chatId/messages/:messageId', chatController.deleteMessage);
-router.post('/:chatId/proxy', chatController.proxyChatRequest);
 
 export default router;

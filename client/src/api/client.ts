@@ -20,7 +20,7 @@ let refreshQueue: Array<{
     reject: (err: unknown) => void;
 }> = [];
 
-function processQueue(error: unknown, token: string | null = null) {
+export function processQueue(error: unknown, token: string | null = null) {
     refreshQueue.forEach(({ resolve, reject }) => {
         if (error) reject(error);
         else resolve(token!);
@@ -29,7 +29,7 @@ function processQueue(error: unknown, token: string | null = null) {
 }
 
 async function request<T>(path: string, method: HttpMethod, body?: unknown): Promise<T> {
-    const res = await fetch(`http://localhost:3000/api${path}`, {
+    let res = await fetch(`http://localhost:3000/api${path}`, {
         method,
         credentials: "include",
         headers: {
@@ -39,13 +39,16 @@ async function request<T>(path: string, method: HttpMethod, body?: unknown): Pro
         body: body !== undefined ? JSON.stringify(body) : undefined,
     });
 
-    if (res.status === 401) {
+    if (res.status === 401 && !path.includes('auth')) {
         return handleTokenRefresh(path, method, body);
     }
 
     if (!res.ok) {
-        const message = await res.text();
-        throw new ApiError(res.status, message);
+        const body = await res.json();
+        if (body.fields) {
+            throw new ApiError(body.error || 'Ошибка валидации', body.fields);
+        }
+        throw new ApiError(body.error || 'Неизвестная ошибка');
     }
 
     if (res.status === 204) return null as T;
@@ -53,7 +56,7 @@ async function request<T>(path: string, method: HttpMethod, body?: unknown): Pro
     return res.json() as Promise<T>;
 }
 
-async function handleTokenRefresh<T>(
+export async function handleTokenRefresh<T>(
     path: string,
     method: HttpMethod,
     body?: unknown
@@ -80,7 +83,7 @@ async function handleTokenRefresh<T>(
 
         if (!refreshRes.ok) {
             window.location.href = "/login";
-            throw new ApiError(401, "Сессия истекла");
+            throw new ApiError("Сессия истекла");
         }
 
         const { accessToken: newToken } = await refreshRes.json();
@@ -100,8 +103,11 @@ async function handleTokenRefresh<T>(
 }
 
 export class ApiError extends Error {
-    constructor(public status: number, message: string) {
+    fields?: Record<string, string>;
+
+    constructor(message: string, fields?: Record<string, string>) {
         super(message);
+        this.fields = fields;
     }
 }
 

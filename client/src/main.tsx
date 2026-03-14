@@ -10,6 +10,8 @@ import { setAccessToken, getAccessToken } from './api/client';
 import './App.scss'
 import { useChatStore } from './store/chatStore';
 import Profile from './pages/ProfilePage/Profile';
+import StartPage from './pages/StartPage/StartPage';
+import NotFoundChat from './pages/NotFoundChat/NotFoundChat';
 
 function RootLayout(): JSX.Element {  // ← не Promise<JSX.Element>
   const navigate = useNavigate();
@@ -34,7 +36,6 @@ function RootLayout(): JSX.Element {  // ← не Promise<JSX.Element>
 
   return (
     <div className="app">
-      <Sidebar />
       <Outlet />
     </div>
   );
@@ -44,17 +45,54 @@ function ProtectedRoute({ children }: { children: JSX.Element }): JSX.Element {
   return getAccessToken() ? children : <Navigate to="/login" replace />;
 }
 
+function ChatLayout(): JSX.Element {
+  const sidebarOpen = useChatStore((s) => s.sidebarOpen);
+  const toggleSidebar = useChatStore((s) => s.toggleSidebar);
+
+  useEffect(() => {
+    const theme = localStorage.getItem("theme") || "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+  }, []);
+
+  return (
+    <>
+      <div
+        className={`sidebar-overlay ${sidebarOpen ? 'sidebar-overlay--visible' : ''}`}
+        onClick={toggleSidebar}
+      />
+      <Sidebar />
+      {!sidebarOpen && (
+        <button className="sidebar-open-btn" onClick={toggleSidebar}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="9" y1="3" x2="9" y2="21" />
+          </svg>
+        </button>
+      )}
+      <Outlet />
+    </>
+  );
+}
+
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
     children: [
       {
-        path: "/*",
-        element: <ProtectedRoute><MainPage /></ProtectedRoute>
+        element: <ChatLayout />,
+        children: [
+          { path: "/", element: <ProtectedRoute><StartPage /></ProtectedRoute> },
+          { path: "/chats/:chatId", element: <ProtectedRoute><MainPage /></ProtectedRoute> },
+          { path: "/chats/not-found", element: <ProtectedRoute><NotFoundChat /></ProtectedRoute> }
+        ],
+      },
+      {
+        path: "/profile",            // ← без Sidebar
+        element: <ProtectedRoute><Profile /></ProtectedRoute>
       },
     ],
   },
-  { path: "profile", element: <ProtectedRoute><Profile /></ProtectedRoute> },
   { path: "/login", element: <AuthPage /> },
   { path: "/register", element: <AuthPage /> },
 ]);

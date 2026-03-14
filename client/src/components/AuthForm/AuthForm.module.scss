@@ -46,7 +46,7 @@
     letter-spacing: -0.02em;
     line-height: 1.1;
     color: var(--text-primary);
-    font-family: 'Syne', sans-serif;
+    font-family: 'Unbounded', sans-serif;
 }
 
 .titleAccent {
@@ -189,7 +189,7 @@
     color: #0f0f0f;
     border: none;
     border-radius: 2px;
-    font-family: 'Syne', sans-serif;
+    font-family: 'Unbounded', sans-serif;
     font-size: 14px;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -242,12 +242,12 @@
     padding: 13px 16px;
     border-radius: 2px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
+    font-size: 0.75rem;
     letter-spacing: 0.08em;
     animation: feedbackIn 0.3s ease both;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0.5rem;
 }
 
 .feedbackSuccess {
@@ -257,8 +257,8 @@
 }
 
 .feedbackError {
-    background: rgba(239, 68, 68, 0.08);
-    border: 1px solid rgba(239, 68, 68, 0.30);
+    background: var(--error-dim);
+    border: 1px solid var(--error-border);
     color: var(--error);
 }
 

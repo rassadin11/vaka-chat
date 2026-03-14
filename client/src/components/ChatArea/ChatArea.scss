@@ -3,5 +3,67 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: var(--bg-chat);
+  background-color: var(--bg-chat-area);
+  background-image: radial-gradient(ellipse 80% 60% at 50% 40%,
+      var(--bg-chat-area-gradient) 0%,
+      transparent 70%);
+  position: relative;
+
+  &__title {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 10;
+    padding: 0.75rem 1rem;
+    backdrop-filter: blur(12px);
+    background: var(--bg-blur);
+    border-bottom: 1px solid var(--border-blur);
+    display: flex;
+    align-items: start;
+    gap: 0.75rem;
+
+    @media (max-width: 768px) {
+      padding: 0.5rem 1rem;
+    }
+
+    & .name {
+      text-align: center;
+      width: 100%;
+    }
+
+    p[contenteditable] {
+      display: inline-block;
+      font-size: 1.25rem;
+      font-weight: 500;
+      color: var(--text-primary);
+      outline: none;
+      border-bottom: 1px solid transparent;
+      padding-bottom: 2px;
+      transition: border-color 0.15s ease;
+      cursor: text;
+      max-width: 480px;
+      white-space: nowrap;
+      overflow: hidden;
+
+      @media (max-width: 768px) {
+        line-height: 1;
+      }
+
+      &:hover {
+        border-bottom-color: var(--border-input);
+      }
+
+      &:focus {
+        border-bottom-color: var(--accent-border);
+      }
+    }
+
+    span {
+      display: block;
+      font-size: 11px;
+      color: var(--text-secondary);
+      opacity: 0.5;
+    }
+  }
 }

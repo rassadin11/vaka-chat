@@ -1,6 +1,8 @@
 :root {
-  --bg-sidebar: #0f0f0f;
+  --bg-sidebar: #141315;
   --bg-chat: #1a1a1a;
+  --bg-chat-area: #151517;
+  --bg-chat-area-gradient: rgba(16, 185, 129, 0.035);
   --bg-input: #242424;
   --bg-hover: #2a2a2a;
   --text-primary: #f0f0f0;
@@ -11,9 +13,94 @@
   --accent-border: rgba(16, 185, 129, 0.35);
   --border: #282828;
   --border-input: #363636;
+  --border-blur: rgba(40, 40, 40, 0.6);
+  --bg-blur: rgba(26, 26, 26, 0.7);
+  --error: #ef4444;
+  --error-dim: rgba(239, 68, 68, 0.08);
+  --error-border: rgba(239, 68, 68, 0.30);
   --scrollbar-thumb: #333333;
   --scrollbar-thumb-hover: #444444;
-  --error: #ef4444;
+
+  --bg-code: #161b22;
+  --bg-code-header: #1c2030;
+  --bg-table-header: #1e2530;
+  --border-code: #333333;
+  --border-copy-btn: #3a3a3a;
+  --text-code: #abb2bf;
+  --text-copy-btn: #888888;
+  --table-row-even: rgba(255, 255, 255, 0.025);
+  --table-row-hover: rgba(16, 185, 129, 0.06);
+
+  --bg-input-wrapper: #1c1c20;
+  --bg-tooltip: #1e1e22;
+  --accent-focus-ring: rgba(16, 185, 129, 0.06);
+  --overlay-dark: rgba(0, 0, 0, 0.65);
+  --overlay-dark-hover: rgba(0, 0, 0, 0.9);
+  --border-hover: #444444;
+
+  --message-content-user: rgba(240, 240, 240, 0.92);
+  --message-content-assistant: rgba(240, 240, 240, 0.85);
+  --lightbox-bg: rgba(255, 255, 255, 0.12);
+  --lightbox-bg-hover: rgba(255, 255, 255, 0.2);
+
+  --modal-close: #555;
+}
+
+[data-theme="light"] {
+  --bg-sidebar: #f0efef;
+  --bg-chat: #f7f7f7;
+  --bg-chat-area: #f9f9f9;
+  --bg-chat-area-gradient: rgba(16, 185, 129, 0.04);
+  --bg-input: #efefef;
+  --bg-hover: #e8e8e8;
+  --text-primary: #111111;
+  --text-secondary: #666666;
+  --accent: #059669;
+  --accent-hover: #047857;
+  --accent-dim: rgba(5, 150, 105, 0.10);
+  --accent-border: rgba(5, 150, 105, 0.30);
+  --border: #e0e0e0;
+  --border-input: #d0d0d0;
+  --border-blur: rgba(200, 200, 200, 0.6);
+  --bg-blur: rgba(247, 247, 247, 0.75);
+  --error: #dc2626;
+  --error-dim: rgba(220, 38, 38, 0.08);
+  --error-border: rgba(220, 38, 38, 0.25);
+  --scrollbar-thumb: #cccccc;
+  --scrollbar-thumb-hover: #bbbbbb;
+
+  --bg-code: #f3f4f6;
+  --bg-code-header: #e9edf5;
+  --bg-table-header: #edf0f7;
+  --border-code: #d8d8d8;
+  --border-copy-btn: #cccccc;
+  --text-code: #383a42;
+  --text-copy-btn: #777777;
+  --table-row-even: rgba(0, 0, 0, 0.025);
+  --table-row-hover: rgba(5, 150, 105, 0.06);
+
+  --bg-input-wrapper: #f0f0f2;
+  --bg-tooltip: #ffffff;
+  --accent-focus-ring: rgba(5, 150, 105, 0.08);
+  --overlay-dark: rgba(0, 0, 0, 0.45);
+  --overlay-dark-hover: rgba(0, 0, 0, 0.65);
+  --border-hover: #bbbbbb;
+
+  --message-content-user: rgba(17, 17, 17, 0.90);
+  --message-content-assistant: rgba(17, 17, 17, 0.80);
+  --lightbox-bg: rgba(0, 0, 0, 0.06);
+  --lightbox-bg-hover: rgba(0, 0, 0, 0.12);
+
+  --modal-close: #999999;
+}
+
+::selection {
+  background: rgba(16, 185, 129, 0.35);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] ::selection {
+  background: rgba(16, 185, 129, 0.25);
 }
 
 *,
@@ -31,10 +118,10 @@ body,
 }
 
 body {
-  font-family: 'JetBrains', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background-color: var(--bg-chat);
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
@@ -96,4 +183,37 @@ button {
       font-size: 15px;
     }
   }
+}
+
+// open sidebar
+
+.sidebar-open-btn {
+  position: absolute;
+  top: 1rem;
+  left: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  background: var(--bg-chat);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &.in-chat {
+    position: absolute;
+    top: auto;
+    left: auto;
+    margin-top: 0.25rem;
+  }
+}
+
+.sidebar-open-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  background: var(--accent-dim);
 }

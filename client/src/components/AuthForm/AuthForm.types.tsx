@@ -9,6 +9,7 @@ export interface FormState {
     email: string;
     password: string;
     confirm: string;
+    promo?: string;
 }
 
 export type TouchedFields = Partial<Record<keyof FormState, boolean>>;

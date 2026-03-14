@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import type { AuthMode, FormState, TouchedFields, PasswordStrength } from "./AuthForm.types";
 import { authApi } from "../../api/auth";
 import { useNavigate } from "react-router";
-import { setAccessToken } from "../../api/client";
+import { ApiError, setAccessToken } from "../../api/client";
 
 function validateEmail(email: string): boolean {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -31,12 +31,16 @@ interface UseAuthFormReturn {
     errors: Record<keyof FormState, string>;
     isValid: Record<keyof FormState, boolean>;
     strength: PasswordStrength;
+    errorMessage: string;
+
     setIsLoading: (v: boolean) => void;
     setEmail: (v: string) => void;
     setPassword: (v: string) => void;
     setConfirm: (v: string) => void;
     touch: (field: keyof FormState) => void;
     handleSubmit: () => void;
+    setErrorMessage: (msg: string) => void;
+    setPromo: (promo: string) => void;
 }
 
 export function useAuthForm(mode: AuthMode): UseAuthFormReturn {
@@ -45,10 +49,12 @@ export function useAuthForm(mode: AuthMode): UseAuthFormReturn {
     const [email, setEmail] = useState<string>("");
     const [password, setPassword] = useState<string>("");
     const [confirm, setConfirm] = useState<string>("");
+    const [promo, setPromo] = useState("");
     const [touched, setTouched] = useState<TouchedFields>({});
     const [submitted, setSubmitted] = useState<boolean>(false);
     const [success, setSuccess] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false)
+    const [errorMessage, setErrorMessage] = useState('')
 
     const navigate = useNavigate();
 
@@ -56,6 +62,7 @@ export function useAuthForm(mode: AuthMode): UseAuthFormReturn {
         setEmail("");
         setPassword("");
         setConfirm("");
+        setPromo("");
         setTouched({});
         setSubmitted(false);
         setSuccess(false);
@@ -66,7 +73,7 @@ export function useAuthForm(mode: AuthMode): UseAuthFormReturn {
     }
 
     const emailValid = validateEmail(email);
-    const pwdValid = password.length >= 12;
+    const pwdValid = password.length >= 8;
     const confirmValid = confirm === password;
 
     const isFormValid = emailValid && pwdValid && (!isRegister || confirmValid);
@@ -78,39 +85,56 @@ export function useAuthForm(mode: AuthMode): UseAuthFormReturn {
                 : "",
         password:
             touched.password && password.length > 0 && !pwdValid
-                ? "Минимум 12 символов"
+                ? "Минимум 8 символов"
                 : "",
         confirm:
             isRegister && touched.confirm && confirm.length > 0 && !confirmValid
                 ? "Пароли не совпадают"
                 : "",
+        promo: "",
     };
 
     const isValid: Record<keyof FormState, boolean> = {
         email: Boolean(touched.email && emailValid),
         password: Boolean(touched.password && pwdValid),
         confirm: Boolean(touched.confirm && confirm.length > 0 && confirmValid),
+        promo: true
     };
 
     async function handleSubmit(): Promise<void> {
         setSubmitted(true);
-        setTouched({ email: true, password: true, confirm: true });
+        setTouched({ email: true, password: true, confirm: true, promo: true });
         if (!isFormValid) return;
 
         setIsLoading(true)
 
         try {
             if (isRegister) {
-                const data = await authApi.register({ email, password, name: email.split("@")[0] });
+                const data = await authApi.register({ email, password, name: email.split("@")[0], promo });
                 setAccessToken(data.accessToken);
                 navigate("/");
             } else {
                 const data = await authApi.login({ email, password });
                 setAccessToken(data.accessToken);
-                navigate("/");
+                navigate("/")
             }
         } catch (e) {
-            console.error(e)
+            if (e instanceof ApiError) {
+                if (e.fields) {
+                    if (e.fields.promo) {
+                        errors.promo = e.fields.promo;
+                        setErrorMessage(e.fields.promo);
+                    }
+                    if (e.fields.email) {
+                        setErrorMessage(e.fields.email);
+                    }
+                } else {
+                    setErrorMessage(e.message);
+                }
+            } else {
+                setErrorMessage("Произошла ошибка. Попробуйте еще раз.");
+            }
+
             setSuccess(false);
         }
 
@@ -118,7 +142,7 @@ export function useAuthForm(mode: AuthMode): UseAuthFormReturn {
     }
 
     return {
-        fields: { email, password, confirm },
+        fields: { email, password, confirm, promo },
         touched,
         submitted,
         success,
@@ -127,11 +151,14 @@ export function useAuthForm(mode: AuthMode): UseAuthFormReturn {
         isValid,
         strength: getPasswordStrength(password),
         isLoading,
+        errorMessage,
         setEmail,
         setPassword,
         setConfirm,
+        setPromo,
         setIsLoading,
         touch,
         handleSubmit,
+        setErrorMessage
     };
 }

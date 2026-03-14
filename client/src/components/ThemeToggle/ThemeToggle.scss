@@ -1,0 +1,24 @@
+.theme-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--border-input);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+
+    &:hover {
+        color: var(--accent);
+        border-color: var(--accent-border);
+        background: var(--accent-dim);
+    }
+
+    &:active {
+        transform: scale(0.92);
+    }
+}

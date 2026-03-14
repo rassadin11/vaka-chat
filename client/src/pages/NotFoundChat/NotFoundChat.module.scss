@@ -1,0 +1,97 @@
+// NotFoundChat.module.scss
+.wrap {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 2rem;
+    background: var(--bg-chat-area);
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+}
+
+.gridBg {
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(var(--bg-chat-area-gradient) 1px, transparent 1px),
+        linear-gradient(90deg, var(--bg-chat-area-gradient) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+}
+
+.code {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 88px;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: -4px;
+    line-height: 1;
+    opacity: 0.1;
+    user-select: none;
+    pointer-events: none;
+}
+
+.iconWrap {
+    width: 72px;
+    height: 72px;
+    border-radius: 20px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+    position: relative;
+    z-index: 1;
+
+    svg {
+        width: 32px;
+        height: 32px;
+        color: var(--accent);
+    }
+}
+
+.title {
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+    position: relative;
+    z-index: 1;
+}
+
+.subtitle {
+    font-size: 14px;
+    color: var(--text-secondary);
+    text-align: center;
+    max-width: 280px;
+    line-height: 1.6;
+    position: relative;
+    z-index: 1;
+    margin-bottom: 2rem;
+}
+
+.btn {
+    font-size: 14px;
+    font-weight: 500;
+    padding: 10px 20px;
+    border-radius: 10px;
+    border: 1px solid var(--accent-border);
+    background: var(--accent-dim);
+    color: var(--accent);
+    cursor: pointer;
+    position: relative;
+    z-index: 1;
+    transition: background 0.15s, border-color 0.15s;
+
+    &:hover {
+        background: rgba(16, 185, 129, 0.2);
+        border-color: var(--accent);
+    }
+}

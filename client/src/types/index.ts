@@ -14,6 +14,7 @@ export interface Attachment {
   /** base64 data URL for images; raw text for text files */
   data: string;
   isImage: boolean;
+  isDocument: boolean;
   size: number;
 }
 
@@ -22,8 +23,9 @@ export interface Message {
   role: 'user' | 'assistant';
   name: string;
   content: string;
+  inContext: boolean;
   image?: string;
-  modelId?: string;
+  model?: string;
   modelName?: string;
   attachments?: Attachment[];
   createdAt: Date;
@@ -31,4 +33,27 @@ export interface Message {
 
 export interface Chat extends ChatResponse {
   messages: Message[];
+}
+
+export interface Model {
+  id: string;
+  name: string;
+  context_length: number;
+  architecture: {
+    modality: string;
+    input_modalities: string[];
+    output_modalities: string[];
+    tokenizer: string;
+    instruct_type: string | null;
+  };
+  pricing: {
+    prompt: string;
+    completion: string;
+  };
+  supported_parameters: string[];
+  default_parameters: {
+    temperature: number | null;
+    top_p: number | null;
+    frequency_penalty: number | null;
+  };
 }

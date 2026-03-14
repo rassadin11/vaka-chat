@@ -1,0 +1,88 @@
+.empty-page {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--bg-chat-area);
+    background-image: radial-gradient(ellipse 80% 60% at 50% 40%, var(--bg-chat-area-gradient) 0%, transparent 70%);
+    min-height: 100vh;
+
+    &__content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        animation: emptyFadeUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    &__icon-wrap {
+        position: relative;
+        margin-bottom: 8px;
+    }
+
+    &__icon {
+        color: var(--accent);
+        opacity: 0.9;
+        display: block;
+    }
+
+    &__glow {
+        position: absolute;
+        inset: -16px;
+        border-radius: 50%;
+        pointer-events: none;
+    }
+
+    &__title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        letter-spacing: -0.01em;
+        margin: 0;
+    }
+
+    &__subtitle {
+        font-size: 1rem;
+        color: var(--text-secondary);
+        margin: 0;
+        text-align: center;
+        max-width: 280px;
+        line-height: 1.5;
+    }
+
+    &__btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        padding: 0.75rem 1.25rem;
+        background: var(--accent);
+        color: var(--bg-sidebar);
+        border: none;
+        border-radius: 6px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s ease, transform 0.1s ease;
+
+        &:hover {
+            background: var(--accent-hover);
+        }
+
+        &:active {
+            transform: scale(0.98);
+        }
+    }
+}
+
+@keyframes emptyFadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

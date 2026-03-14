@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useChatStore } from '../../store/chatStore';
 import { ProviderLogo } from './ProviderLogo';
 import './ModelModal.scss';
+import Loading from '../Loading/Loading';
 
 interface Props {
   onClose: () => void;
@@ -27,7 +28,7 @@ function getPrice(pricing: { prompt: string; completion: string } | undefined, f
 
 const CLOSE_DURATION = 180; // мс — должно совпадать с длительностью CSS-анимации
 
-function isReasoningModel(model: import('../../types').OpenRouterModel): boolean {
+function isReasoningModel(model: import('../../types').Model): boolean {
   if (model.supported_parameters?.includes('reasoning')) return true;
   const id = model.id.toLowerCase();
   return (
@@ -39,15 +40,19 @@ function isReasoningModel(model: import('../../types').OpenRouterModel): boolean
   );
 }
 
-function isVisionModel(model: import('../../types').OpenRouterModel): boolean {
+function isVisionModel(model: import('../../types').Model): boolean {
   return model.architecture?.input_modalities?.includes('image') ?? false;
 }
 
+function isFilesModel(model: import('../../types').Model): boolean {
+  return model.architecture?.input_modalities?.includes('file') ?? false;
+}
+
 interface ModelCardProps {
-  model: import('../../types').OpenRouterModel;
+  model: import('../../types').Model;
   isActive: boolean;
   activeChatId: string | null;
-  setModel: (chatId: string, modelId: string, modelName: string) => void;
+  setModel: (modelId: string) => void;
   handleClose: () => void;
 }
 
@@ -55,12 +60,13 @@ function ModelCard({ model, isActive, activeChatId, setModel, handleClose }: Mod
   const price = formatPrice(model.pricing);
   const reasoning = isReasoningModel(model);
   const vision = isVisionModel(model);
+  const file = isFilesModel(model);
+
   return (
     <button
       className={`model-card ${isActive ? 'model-card--active' : ''}`}
       onClick={() => {
-        console.log(model)
-        if (activeChatId) setModel(activeChatId, model.id, model.name);
+        if (activeChatId) setModel(model.id);
         handleClose();
       }}
     >
@@ -75,7 +81,7 @@ function ModelCard({ model, isActive, activeChatId, setModel, handleClose }: Mod
         <ProviderLogo modelId={model.id} size={40} />
       </div>
       <div className="model-card__name">{model.name}</div>
-      {(reasoning || vision) && (
+      {(reasoning || vision || file) && (
         <div className="model-card__badges">
           {reasoning && (
             <span className="model-card__badge model-card__badge--reasoning" title="Думает — модель рассуждает перед ответом">
@@ -93,6 +99,15 @@ function ModelCard({ model, isActive, activeChatId, setModel, handleClose }: Mod
                 <circle cx="12" cy="12" r="3" />
               </svg>
               Изображения
+            </span>
+          )}
+          {file && (
+            <span className="model-card__badge model-card__badge--file" title="Файлы — принимает файлы на вход">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+              </svg>
+              Файлы
             </span>
           )}
         </div>
@@ -129,12 +144,10 @@ export default function ModelModal({ onClose }: Props) {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const models = useChatStore((s) => s.models);
-  const activeChatId = useChatStore((s) => s.activeChatId);
-  const currentModel = useChatStore((s) => {
-    const chat = s.chats.find((c) => c.id === s.activeChatId);
-    return chat?.model ?? '';
-  });
+  const currentModel = useChatStore((s) => s.activeModel);
   const setModel = useChatStore((s) => s.setModel);
+  const isLoadingModels = useChatStore((s) => s.isLoadingModels);
+  const activeChatId = useChatStore((s) => s.activeChat?.id);
 
   const handleClose = () => {
     setIsClosing(true);
@@ -248,7 +261,7 @@ export default function ModelModal({ onClose }: Props) {
           {sortLabel('output', 'Цена выхода')}
         </div>
 
-        <div className="model-modal__grid">
+        {isLoadingModels ? <Loading /> : <div className="model-modal__grid">
           {sorted.length === 0 && (
             <p className="model-modal__empty">Ничего не найдено</p>
           )}
@@ -263,7 +276,7 @@ export default function ModelModal({ onClose }: Props) {
                   Языковые модели
                 </div>
               )}
-              {textModels.map((model) => <ModelCard key={model.id} model={model} isActive={model.id === currentModel} activeChatId={activeChatId} setModel={setModel} handleClose={handleClose} />)}
+              {textModels.map((model) => <ModelCard key={model.id} model={model} isActive={model.id === currentModel.id} activeChatId={activeChatId ?? null} setModel={setModel} handleClose={handleClose} />)}
             </>
           )}
 
@@ -277,10 +290,10 @@ export default function ModelModal({ onClose }: Props) {
                 </svg>
                 Генерация изображений
               </div>
-              {imageModels.map((model) => <ModelCard key={model.id} model={model} isActive={model.id === currentModel} activeChatId={activeChatId} setModel={setModel} handleClose={handleClose} />)}
+              {imageModels.map((model) => <ModelCard key={model.id} model={model} isActive={model.id === currentModel.id} activeChatId={activeChatId ?? null} setModel={setModel} handleClose={handleClose} />)}
             </>
           )}
-        </div>
+        </div>}
       </div>
     </div>,
     document.body,

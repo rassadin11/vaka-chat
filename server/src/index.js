@@ -5,6 +5,7 @@ import authRoutes from './routes/auth.routes.js';
 import chatRoutes from './routes/chat.routes.js';
 import rateLimit from 'express-rate-limit';
 import cors from 'cors';
+import { getModels } from './routes/models.js';
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -18,22 +19,15 @@ app.use(cors({
   origin: 'http://localhost:5173',
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+
 app.use(cookieParser());
 
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/chats', authLimiter, chatRoutes);
 
-app.get("/api/models", authLimiter, async (req, res) => {
-  const response = await fetch("https://openrouter.ai/api/v1/models", {
-    headers: {
-      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-  });
-  const data = await response.json();
-  res.json(data);
-});
+app.get("/api/models", authLimiter, getModels);
 
 // Глобальный обработчик ошибок
 app.use((err, req, res, next) => {

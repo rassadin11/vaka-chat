@@ -2,8 +2,8 @@ import { User } from "../types";
 import { client } from "./client";
 
 interface LoginPayload { email: string; password: string }
-interface RegisterPayload extends LoginPayload { name: string }
-interface AuthResponse { accessToken: string; }
+interface RegisterPayload extends LoginPayload { name: string, promo: string }
+interface AuthResponse { accessToken: string; message: string; }
 
 export const authApi = {
     login: (data: LoginPayload) => client.post<AuthResponse>("/auth/login", data),
