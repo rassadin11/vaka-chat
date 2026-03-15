@@ -63,7 +63,7 @@ interface StreamChatCallbacks {
   onDone: () => void;
   onError: (error: Error) => void;
   onImage?: (url: string, content: string) => void;
-  onSync?: (userMessageId: string) => void;
+  onSync?: (userMessageId: string, balance: number, balanceUSD: number) => void;
 }
 
 const API_BASE = 'http://localhost:3000/api';
@@ -220,6 +220,8 @@ export async function streamChat(
   signal?.addEventListener('abort', () => reader.cancel());
 
   try {
+    let buffer = '';
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -230,19 +232,27 @@ export async function streamChat(
         return;
       }
 
-      const chunk = decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true });
 
-      for (const line of chunk.split('\n')) {
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? ''; // неполная строка остаётся в буфере
+
+      for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
 
         const raw = line.slice(6).trim();
-        if (raw === '[DONE]') continue;
+        if (!raw || raw === '[DONE]') continue;
 
-        const parsed = JSON.parse(raw);
+        let parsed;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          continue; // обрезанный чанк — ждём следующего
+        }
 
         if (parsed.type === 'done') {
-          callbacks.onSync?.(parsed.userMessageId);
-          callbacks.onDone();
+          onSync?.(parsed.userMessageId, parsed.balance, parsed.balanceUSD);
+          onDone();
           return;
         }
 

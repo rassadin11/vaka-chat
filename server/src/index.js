@@ -6,10 +6,15 @@ import chatRoutes from './routes/chat.routes.js';
 import rateLimit from 'express-rate-limit';
 import cors from 'cors';
 import { getModels } from './routes/models.js';
+import { initCurrencyRate, getRate, topUpBalance } from './constants/constants.js';
+
+await initCurrencyRate();
+
+topUpBalance('cmmgl9c6600006scric69x1ed', 1)
 
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: 5 * 60 * 1000,
+  max: 50,
   message: { error: 'Слишком много попыток, попробуйте позже' },
 });
 
@@ -39,3 +44,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
 });
+
+console.log(getRate())

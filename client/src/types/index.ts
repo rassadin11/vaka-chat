@@ -3,7 +3,8 @@ import { ChatResponse } from "../api/chats";
 export interface User {
   id: string;
   email: string;
-  balance: string;
+  balance: string | number;
+  balanceUSD: string | number;
   createdAt: string;
 }
 

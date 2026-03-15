@@ -56,8 +56,34 @@
     margin-top: 1px;
   }
 
+  &__context-tooltip {
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%) translateX(-4px);
+    padding: 5px 9px;
+    background: var(--bg-tooltip);
+    border: 1px solid var(--border-input);
+    border-radius: 7px;
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 400;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    z-index: 20;
+
+    .message__context-btn:hover & {
+      opacity: 1;
+      transform: translateY(-50%) translateX(0);
+    }
+  }
+
   &__context-btn {
     display: flex;
+    position: relative; // ← обязательно
+    overflow: visible;
     align-items: center;
     justify-content: center;
     width: 16px;

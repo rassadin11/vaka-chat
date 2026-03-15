@@ -15,7 +15,7 @@ router.post('/logout', authController.logout);
 router.get('/me', authMiddleware, async (req, res) => {
     const user = await prisma.user.findUnique({
         where: { id: req.userId },
-        select: { id: true, email: true, balance: true, createdAt: true }, // пароль не отдаём!
+        select: { id: true, email: true, balance: true, balanceUSD: true, createdAt: true }, // пароль не отдаём!
     });
 
     if (!user) return res.status(404).json({ error: 'Пользователь не найден' });

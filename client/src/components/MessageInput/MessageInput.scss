@@ -370,7 +370,8 @@
     font-size: 12px;
     font-weight: 400;
     line-height: 1.4;
-    max-width: 80vw; // ← максимальная ширина
+    max-width: 350px; // ← максимальная ширина
+    text-align: center;
     word-break: break-word;
     pointer-events: none;
     opacity: 0;

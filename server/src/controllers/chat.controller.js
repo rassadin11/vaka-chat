@@ -3,6 +3,8 @@ import * as chatService from '../services/chat.service.js';
 import { prisma } from '../prisma.js'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { getNextMessageOrder, saveAssistantMessage } from '../utils/saveAssistantMessage.js'
+import { getRate } from '../constants/constants.js';
+import { getCachedModels } from '../cache/modelsCache.js';
 
 async function extractPdfText(buffer) {
     const doc = await getDocument({ data: buffer }).promise;
@@ -139,23 +141,14 @@ export async function createMessage(req, res) {
         }
     }
 
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user.balance < 10 && isImageModel) {
+        return res.status(400).json({ error: 'Недостаточно средств для генерации изображения. Необходимо иметь на балансе больше 10 руб.' });
+    }
+
     const chat = await chatService.getChat(chatId, userId);
     if (!chat) {
         return res.status(403).json({ error: 'Chat not found or access denied' });
-    }
-
-    if (role !== 'user') {
-        try {
-            const message = await chatService.createMessage(chatId, userId, {
-                role,
-                content: content.trim(),
-                model,
-                attachments,
-            });
-            return res.status(201).json(message);
-        } catch (err) {
-            return res.status(400).json({ error: err.message });
-        }
     }
 
     if (!model) {
@@ -215,31 +208,16 @@ export async function createMessage(req, res) {
         }
     }
 
-    const msg = await prisma.message.create({
-        data: {
-            chatId,
-            role: 'user',
-            content: content.trim(),
-            order: userOrder,
-            attachments: processedAttachments?.length
-                ? {
-                    create: processedAttachments.map(a => ({
-                        name: a.name,
-                        mimeType: a.mimeType,
-                        data: a.data,
-                        isImage: a.isImage,
-                        size: a.size,
-                        extractedText: a.extractedText,
-                    })),
-                }
-                : undefined,
-        },
-    });
+    const modelMeta = getCachedModels()?.find(m => m.id === model);
 
-    const userContent = buildUserMessageContent(content.trim(), processedAttachments);
+    const supportsVision = modelMeta?.architecture?.input_modalities?.includes('image') ?? false;
+    const userContent = supportsVision
+        ? buildUserMessageContent(content.trim(), processedAttachments)
+        : content.trim();
+
     const allHistory = history.slice(0, -1).map((msg) => ({
         role: msg.role,
-        content: msg.attachments?.length
+        content: msg.attachments?.length && supportsVision
             ? buildUserMessageContent(msg.content, msg.attachments)
             : msg.content,
     }));
@@ -267,10 +245,12 @@ export async function createMessage(req, res) {
     const requestBody = {
         model,
         messages: messagesForAI,
-        maxTokens: Math.min(maxTokens, 32768),
+        maxTokens: maxTokens !== null ? maxTokens : 32768,
         ...(isImageModel ? {} : { stream: true }),
         ...(plugins?.length ? { plugins: plugins.map((id) => ({ id })) } : {}),
     };
+
+    console.log('[requestBody]', JSON.stringify(requestBody, null, 2));
 
     // ── Если клиент уже отключился пока мы возились с БД ─────────
     if (controller.signal.aborted) return res.end();
@@ -336,12 +316,38 @@ export async function createMessage(req, res) {
         }
 
         const assistantOrder = await getNextMessageOrder(chatId);
+        const costUSD = usage.cost ?? 0;
+        const rateWithMarkup = getRate();
+        const costRub = costUSD * rateWithMarkup;
+
+        const userMessage = await prisma.message.create({
+            data: {
+                chatId,
+                role: 'user',
+                content: content.trim(),
+                order: userOrder,
+                attachments: processedAttachments?.length
+                    ? {
+                        create: processedAttachments.map(a => ({
+                            name: a.name,
+                            mimeType: a.mimeType,
+                            data: a.data,
+                            isImage: a.isImage,
+                            size: a.size,
+                            extractedText: a.extractedText,
+                        })),
+                    }
+                    : undefined,
+            }
+        })
 
         const assistantMsg = await prisma.message.create({
             data: {
                 chatId,
                 role: 'assistant',
                 content: text,
+                cost: costUSD,
+                rubPrice: costRub,
                 model,
                 modelName,
                 inputTokens: usage.prompt_tokens ?? null,
@@ -354,7 +360,17 @@ export async function createMessage(req, res) {
             },
         });
 
-        return res.json({ ...data, userMessageId: msg.id, assistantMessageId: assistantMsg.id });
+        const newBalance = await prisma.user.update({
+            where: { id: userId },
+            data: {
+                balanceUSD: { decrement: costUSD },
+                balance: { decrement: costRub },
+                amountOfQueries: { increment: 1 },
+            },
+            select: { balance: true, balanceUSD: true },
+        })
+
+        return res.json({ ...data, userMessageId: userMessage.id, assistantMessageId: assistantMsg.id, balance: newBalance.balance, balanceUSD: newBalance.balanceUSD });
     }
 
     // ── SSE stream ────────────────────────────────────────────────
@@ -421,18 +437,36 @@ export async function createMessage(req, res) {
         }
     })().catch(() => { });
 
-    await saveAssistantMessage({
-        chatId, accumulated, usage, model, modelName,
+    const newBalance = await saveAssistantMessage({
+        chatId, userId, accumulated, usage, model, modelName,
         messagesForAI,
         aborted: controller.signal.aborted,
         price: {
             income: price.income,
             outcome: price.outcome,
+        },
+        userMessage: {
+            chatId,
+            role: 'user',
+            content: content.trim(),
+            order: userOrder,
+            attachments: processedAttachments?.length
+                ? {
+                    create: processedAttachments.map(a => ({
+                        name: a.name,
+                        mimeType: a.mimeType,
+                        data: a.data,
+                        isImage: a.isImage,
+                        size: a.size,
+                        extractedText: a.extractedText,
+                    })),
+                }
+                : undefined,
         }
     });
 
     if (!res.writableEnded) {
-        res.write(`data: ${JSON.stringify({ type: 'done', userMessageId: msg.id })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', userMessageId: newBalance.userMessageId, balance: newBalance.balance, balanceUSD: newBalance.balanceUSD })}\n\n`);
         res.end();
     }
 }

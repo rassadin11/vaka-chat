@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Chat, Message, Model, User } from '../types';
-import { fetchModels as apiFetchModels, streamChat, type StreamOptions } from '../api/openrouter';
+import { fetchModels as apiFetchModels, fetchModels, streamChat, type StreamOptions } from '../api/openrouter';
 import type { Attachment } from '../types';
 import { chatApi } from '../api/chats';
 import { calcMaxTokens } from '../utils/calcMaxTokens';
@@ -27,10 +27,12 @@ interface ChatStore {
   activeModel: Model;
   abortController: AbortController | null;
   sidebarOpen: boolean;
+  isResearch: boolean;
   errorMessage: string;
   contextLimit: number;
 
   setContextLimit: (limit: number) => void;
+  setIsResearch: (isResearch: boolean) => void;
   toggleSidebar: () => void;
   setUser: (data: User) => void;
   setChats: (chats: Chat[]) => void;
@@ -42,6 +44,7 @@ interface ChatStore {
   editMessage: (chatId: string, messageId: string, newContent: string, options?: StreamOptions) => Promise<void>;
   changeChatTitle: (chatId: string, newTitle: string) => void;
   stopStreaming: () => void;
+  resetModel: () => void;
   fetchModels: () => Promise<void>;
   handleContextMessage: (messageId: string) => Promise<boolean>;
 }
@@ -106,8 +109,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   sidebarOpen: true,
   errorMessage: '',
   contextLimit: 0,
+  isResearch: false,
 
   setContextLimit: (limit) => set({ contextLimit: limit }),
+  setIsResearch: (val) => set({ isResearch: val }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setUser: (user: User) => {
     set(() => ({
@@ -154,10 +159,38 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }));
   },
 
-  setModel: (modelId) => {
+  setModel: async (modelId) => {
+    const { models } = get()
+
+    if (!models.length) {
+      const newModels = await fetchModels();
+
+      set(() => ({
+        models: newModels
+      }))
+    }
+
+    console.log(modelId.includes('research'))
+    if (modelId.includes('research')) {
+      set(() => ({
+        isResearch: true
+      }))
+    } else {
+      set(() => ({
+        isResearch: false
+      }))
+    }
+
     set((state) => ({
-      activeModel: state.models.find(m => m.id === modelId) as Model
+      activeModel: state.models.find(m => m.id === modelId) as Model || state.models[0]
     }));
+  },
+
+  resetModel: () => {
+    set(state => ({
+      activeModel: state.models.find(m => m.id === 'deepseek/deepseek-v3.2'),
+      isResearch: false
+    }))
   },
 
   stopStreaming: () => {
@@ -223,7 +256,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       modelMeta?.architecture?.output_modalities?.includes('image') ?? false;
 
     const modelPricePerToken = parseFloat(activeModel.pricing?.completion ?? '0');
-    const maxTokens = calcMaxTokens(Number(user?.balance), modelPricePerToken);
+    const maxTokens = calcMaxTokens(Number(user?.balanceUSD), modelPricePerToken);
 
     if (maxTokens === 0) {
       set((state) => ({
@@ -291,7 +324,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 ...state.activeChat,
                 messages: state.activeChat.messages.map((m) =>
                   m.id === assistantMessageId && m.content === ''
-                    ? { ...m, content: 'Ошибка: не удалось получить ответ.' }
+                    ? { ...m, content: error?.message }
                     : m,
                 ),
               }
@@ -314,8 +347,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           }));
         },
 
-        onSync: (userMessageId) => {
-          set(state => {
+        onSync: (userMessageId, balance, balanceUSD) => {
+          set((state) => {
             if (!state.activeChat) return {};
 
             const messages = state.activeChat.messages;
@@ -331,6 +364,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                   idx === realIdx ? { ...m, id: userMessageId, inContext: true } : m
                 ),
               },
+              user: state.user ? { ...state.user, balance, balanceUSD } : null,
             };
           });
         },

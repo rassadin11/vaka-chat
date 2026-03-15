@@ -4,7 +4,7 @@ export function calcMaxTokens(balanceUsd: number, pricePerToken: number, safetyF
 
     const maxTokens = Math.floor((balanceUsd * safetyFactor) / pricePerToken);
 
-    if (maxTokens <= 0) return 0;        // баланс кончился
+    if (maxTokens <= 50) return 0;        // баланс кончился
     if (maxTokens > 32000) return null;  // не ограничиваем если лимит огромный
     return maxTokens;
 }

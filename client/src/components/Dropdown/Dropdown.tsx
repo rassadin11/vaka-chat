@@ -20,6 +20,7 @@ function Dropdown() {
                 setIsContextOpen(false);
             }
         };
+
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, []);

@@ -52,14 +52,14 @@ interface ModelCardProps {
   model: import('../../types').Model;
   isActive: boolean;
   activeChatId: string | null;
-  setModel: (modelId: string) => void;
   handleClose: () => void;
 }
 
-function ModelCard({ model, isActive, activeChatId, setModel, handleClose }: ModelCardProps) {
+function ModelCard({ model, isActive, activeChatId, handleClose }: ModelCardProps) {
   const price = formatPrice(model.pricing);
   const reasoning = isReasoningModel(model);
   const vision = isVisionModel(model);
+  const setModel = useChatStore((s) => s.setModel);
   const file = isFilesModel(model);
 
   return (
@@ -145,7 +145,6 @@ export default function ModelModal({ onClose }: Props) {
 
   const models = useChatStore((s) => s.models);
   const currentModel = useChatStore((s) => s.activeModel);
-  const setModel = useChatStore((s) => s.setModel);
   const isLoadingModels = useChatStore((s) => s.isLoadingModels);
   const activeChatId = useChatStore((s) => s.activeChat?.id);
 
@@ -276,7 +275,7 @@ export default function ModelModal({ onClose }: Props) {
                   Языковые модели
                 </div>
               )}
-              {textModels.map((model) => <ModelCard key={model.id} model={model} isActive={model.id === currentModel.id} activeChatId={activeChatId ?? null} setModel={setModel} handleClose={handleClose} />)}
+              {textModels.map((model) => <ModelCard key={model.id} model={model} isActive={model.id === currentModel.id} activeChatId={activeChatId ?? null} handleClose={handleClose} />)}
             </>
           )}
 
@@ -290,7 +289,7 @@ export default function ModelModal({ onClose }: Props) {
                 </svg>
                 Генерация изображений
               </div>
-              {imageModels.map((model) => <ModelCard key={model.id} model={model} isActive={model.id === currentModel.id} activeChatId={activeChatId ?? null} setModel={setModel} handleClose={handleClose} />)}
+              {imageModels.map((model) => <ModelCard key={model.id} model={model} isActive={model.id === currentModel.id} activeChatId={activeChatId ?? null} handleClose={handleClose} />)}
             </>
           )}
         </div>}

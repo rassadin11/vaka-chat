@@ -76,10 +76,7 @@ export default function MessageList({ messages }: Props) {
                   {msg.role === 'user' && (
                     <button
                       className={`message__context-btn ${msg.inContext ? 'message__context-btn--active' : 'message__context-btn--inactive'}`}
-                      onClick={() => {
-                        handleContextMessage(msg.id)
-                      }}
-                      title={msg.inContext ? 'Убрать из контекста' : 'Добавить в контекст'}
+                      onClick={() => handleContextMessage(msg.id)}
                     >
                       {msg.inContext ? (
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -91,6 +88,9 @@ export default function MessageList({ messages }: Props) {
                           <line x1="6" y1="6" x2="18" y2="18" />
                         </svg>
                       )}
+                      <span className="message__context-tooltip">
+                        {msg.inContext ? 'Убрать из контекста' : 'Добавить в контекст'}
+                      </span>
                     </button>
                   )}
                 </div>

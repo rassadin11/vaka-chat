@@ -31,7 +31,10 @@ export default function MessageInput() {
   const stopStreaming = useChatStore((s) => s.stopStreaming);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const activeModel = useChatStore(s => s.activeModel)
+  const setModel = useChatStore((s) => s.setModel);
+  const resetModel = useChatStore(s => s.resetModel);
   const fetchModels = useChatStore((s) => s.fetchModels);
+  const { isResearch, setIsResearch } = useChatStore(s => s)
   const models = useChatStore((s) => s.models);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -52,9 +55,9 @@ export default function MessageInput() {
   }, [modesOpen]);
 
   useEffect(() => {
-    const modalities = activeModel.architecture.input_modalities;
-    setCanAttachImages(modalities.includes('image'));
-    setCanAttachFiles(modalities.includes('file'));
+    const modalities = activeModel?.architecture.input_modalities;
+    setCanAttachImages(modalities?.includes('image'));
+    setCanAttachFiles(modalities?.includes('file'));
   }, [activeModel]);
 
   useEffect(() => {
@@ -74,6 +77,16 @@ export default function MessageInput() {
   }, []);
 
   const toggleMode = (mode: Mode) => {
+    if (mode.forceModel) {
+      setModel(mode.forceModel)
+      setIsResearch(true)
+    }
+
+    if (isResearch && mode.forceModel) {
+      resetModel();
+      setIsResearch(false)
+    }
+
     setActiveModes((prev) => {
       const next = new Set(prev);
       if (next.has(mode.id)) {
@@ -202,7 +215,6 @@ export default function MessageInput() {
   }
 
   function hideTooltip() {
-    // На мобиле не скрываем по mouseLeave — скроет таймер
     if (window.matchMedia('(max-width: 768px)').matches) return;
     if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
     if (tooltipRef.current) tooltipRef.current.style.opacity = '0';
